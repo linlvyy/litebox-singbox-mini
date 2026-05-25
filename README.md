@@ -15,7 +15,7 @@ The script avoids panels, databases, nginx, geo assets, and heavy routing rules.
 Run as root on Debian/Ubuntu/Alpine-like minimal systems with `systemd`, `curl`, `tar`, and `openssl`:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/linlvyy/litebox-singbox/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/linlvyy/litebox-singbox-mini/main/install.sh)
 ```
 
 Local install:
