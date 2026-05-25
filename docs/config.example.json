@@ -1,0 +1,43 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": false
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-reality",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        {
+          "name": "litebox",
+          "uuid": "00000000-0000-0000-0000-000000000000",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.microsoft.com",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.microsoft.com",
+            "server_port": 443
+          },
+          "private_key": "PRIVATE_KEY",
+          "short_id": ["01234567"]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "final": "direct"
+  }
+}
