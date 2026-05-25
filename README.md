@@ -40,10 +40,11 @@ sudo ./install.sh
 安装完成后，快捷管理命令是：
 
 ```bash
-sudo sb
+sudo LB
+sudo lb
 ```
 
-`sb` 是 `litebox` 的快捷入口，默认直接弹出中文菜单。
+`LB` 和 `lb` 都是 `litebox` 的快捷入口，默认直接弹出中文菜单。
 
 也可以继续使用命令行方式：
 
@@ -63,10 +64,11 @@ sudo litebox uninstall
 - `1` 安装或重装 Litebox
 - `2` Argo 隧道设置
 - `3` 端口设置
-- `4` 重启 Litebox
-- `5` 刷新并查看节点
-- `6` 查看运行日志
-- `7` 彻底卸载 Litebox
+- `4` IPv4 / IPv6 出口切换
+- `5` 重启 Litebox
+- `6` 刷新并查看节点
+- `7` 查看运行日志
+- `8` 彻底卸载 Litebox
 - `0` 退出脚本
 
 Argo 子菜单支持：
@@ -80,6 +82,12 @@ Argo 子菜单支持：
 - 使用默认端口安装
 - 使用随机端口安装
 - 自定义端口后安装
+
+主界面会额外显示：
+
+- 本机 IPv4
+- 本机 IPv6
+- 当前出口模式
 
 ## 默认端口
 
@@ -124,7 +132,11 @@ ENABLE_TEMP_ARGO=1 sudo -E ./install.sh
 sudo litebox logs
 ```
 
-临时 Argo 需要把 `cloudflared` 日志里出现的 `trycloudflare.com` 域名填回 VMess 节点里。
+临时 Argo 的 VMess 节点现在会自动处理：
+
+- `add` 使用优选域名 `saas.sin.fan`
+- `host` 自动抓取当前 `trycloudflare.com` 域名
+- `sni` 跟随临时隧道域名
 
 ## 生成文件
 
@@ -134,11 +146,12 @@ sudo litebox logs
 - `/etc/systemd/system/litebox.service`
 - `/etc/systemd/system/litebox-argo.service`
 - `/usr/local/bin/litebox`
-- `/usr/local/bin/sb`
+- `/usr/local/bin/LB`
+- `/usr/local/bin/lb`
 
 ## 卸载说明
 
-选择菜单中的 `7`，会彻底删除：
+选择菜单中的 `8`，会彻底删除：
 
 - `sing-box`
 - `cloudflared`
