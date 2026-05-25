@@ -32,6 +32,7 @@ VLESS_PORT="${VLESS_PORT:-}"
 HY2_PORT="${HY2_PORT:-}"
 VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-}"
 OUTBOUND_MODE="${OUTBOUND_MODE:-}"
+CUSTOM_UUID="${CUSTOM_UUID:-}"
 
 log() { printf '%s\n' "$*"; }
 die() { log "error: $*" >&2; exit 1; }
@@ -153,7 +154,7 @@ random_port_between() {
 apply_saved_settings() {
   REALITY_SNI="${REALITY_SNI:-${LB_REALITY_SNI:-www.microsoft.com}}"
   TLS_SNI="${TLS_SNI:-${LB_TLS_SNI:-bing.com}}"
-  VMESS_WS_PATH="${VMESS_WS_PATH:-${LB_VMESS_WS_PATH:-/vmess}}"
+  VMESS_WS_PATH="${VMESS_WS_PATH:-${LB_VMESS_WS_PATH:-}}"
   ARGO_DOMAIN="${ARGO_DOMAIN:-${LB_ARGO_DOMAIN:-}}"
   ARGO_TOKEN="${ARGO_TOKEN:-${LB_ARGO_TOKEN:-}}"
   ENABLE_TEMP_ARGO="${ENABLE_TEMP_ARGO:-${LB_ENABLE_TEMP_ARGO:-0}}"
@@ -205,6 +206,7 @@ load_or_create_env() {
 
   LB_SERVER="${LB_SERVER:-$(public_ip)}"
   LB_UUID="${LB_UUID:-$(uuid)}"
+  VMESS_WS_PATH="${VMESS_WS_PATH:-/${LB_UUID}-vm}"
   LB_PASSWORD="${LB_PASSWORD:-$(rand_b64 18)}"
   LB_ANYTLS_PASSWORD="${LB_ANYTLS_PASSWORD:-$(rand_b64 24)}"
   LB_TUIC_PASSWORD="${LB_TUIC_PASSWORD:-$(rand_b64 18)}"
@@ -220,6 +222,31 @@ load_or_create_env() {
     LB_REALITY_PUBLIC="$(printf '%s\n' "$pair" | awk '/PublicKey:/ {print $2}')"
   fi
 
+  save_env
+}
+
+uuid_valid() {
+  printf '%s' "$1" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+}
+
+reset_identity() {
+  mkdir -p "$BASE_DIR"
+  if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+  fi
+  apply_saved_settings
+  LB_SERVER="${LB_SERVER:-$(public_ip)}"
+  LB_UUID="${CUSTOM_UUID:-}"
+  LB_PASSWORD=""
+  LB_ANYTLS_PASSWORD=""
+  LB_TUIC_PASSWORD=""
+  LB_HY2_PASSWORD=""
+  LB_HY2_OBFS=""
+  LB_SHORT_ID=""
+  LB_REALITY_PRIVATE=""
+  LB_REALITY_PUBLIC=""
+  VMESS_WS_PATH=""
   save_env
 }
 
@@ -380,7 +407,9 @@ write_config() {
       ],
       "transport": {
         "type": "ws",
-        "path": "$VMESS_WS_PATH"
+        "path": "$VMESS_WS_PATH",
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     }
   ],
@@ -426,6 +455,7 @@ EOF
     else
       argo_cmd="$CLOUDFLARED_BIN tunnel --no-autoupdate --url http://127.0.0.1:$VMESS_LOCAL_PORT"
     fi
+    : >"$BASE_DIR/argo.log"
     cat >"$ARGO_SERVICE" <<EOF
 [Unit]
 Description=Litebox Cloudflare Argo tunnel
@@ -438,6 +468,8 @@ Type=simple
 ExecStart=$argo_cmd
 Restart=on-failure
 RestartSec=5
+StandardOutput=append:$BASE_DIR/argo.log
+StandardError=append:$BASE_DIR/argo.log
 
 [Install]
 WantedBy=multi-user.target
@@ -465,8 +497,13 @@ write_cli() {
 }
 
 extract_temp_argo_domain() {
+  if [ -f "$BASE_DIR/argo.log" ]; then
+    sed -nE 's#.*(https://)?([a-zA-Z0-9-]+\.trycloudflare\.com).*#\2#p' "$BASE_DIR/argo.log" |
+      tail -n 1
+    return
+  fi
   journalctl -u litebox-argo.service -n 120 --no-pager 2>/dev/null |
-    sed -nE 's#.*([a-zA-Z0-9-]+\.trycloudflare\.com).*#\1#p' |
+    sed -nE 's#.*(https://)?([a-zA-Z0-9-]+\.trycloudflare\.com).*#\2#p' |
     tail -n 1
 }
 
@@ -506,7 +543,7 @@ write_links() {
     vmess_host="<argo-not-enabled>"
     vmess_sni="$vmess_host"
   fi
-  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s"}' "$NAME" "$vmess_add" "$LB_UUID" "$vmess_host" "$VMESS_WS_PATH" "$vmess_sni" | b64_nowrap)"
+  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s?ed=2048","tls":"tls","sni":"%s"}' "$NAME" "$vmess_add" "$LB_UUID" "$vmess_host" "$VMESS_WS_PATH" "$vmess_sni" | b64_nowrap)"
 
   cat >"$LINKS_FILE" <<EOF
 VLESS-REALITY:
@@ -662,10 +699,9 @@ change_ports_menu() {
     printf '\n'
     log "端口设置"
     log "1. 使用推荐默认端口"
-    log "2. 随机生成合适端口"
-    log "3. 手动自定义端口"
+    log "2. 手动自定义端口"
     log "0. 返回上层"
-    printf '请选择 [0-3]: '
+    printf '请选择 [0-2]: '
     read -r action || exit 1
     case "$action" in
       1)
@@ -677,14 +713,6 @@ change_ports_menu() {
         break
         ;;
       2)
-        set_random_ports
-        if is_installed; then
-          apply_changes
-        fi
-        log "已生成随机端口"
-        break
-        ;;
-      3)
         VLESS_PORT="$(prompt_port 'VLESS Reality 端口' "$VLESS_PORT")"
         ANYTLS_PORT="$(prompt_port 'AnyTLS 端口' "$ANYTLS_PORT")"
         TUIC_PORT="$(prompt_port 'TUIC v5 端口' "$TUIC_PORT")"
@@ -809,34 +837,62 @@ uninstall_all() {
 
 install_menu() {
   apply_saved_settings
+  CUSTOM_UUID=""
   while :; do
     printf '\n'
     log "安装设置"
     log "1. 使用默认端口安装"
-    log "2. 使用随机端口安装"
-    log "3. 自定义端口后安装"
+    log "2. 自定义端口后安装"
     log "0. 返回主菜单"
-    printf '请选择 [0-3]: '
+    printf '请选择 [0-2]: '
     read -r action || exit 1
     case "$action" in
       1)
         set_default_ports
+        choose_uuid_mode
         install_all
         break
         ;;
       2)
-        set_random_ports
-        install_all
-        break
-        ;;
-      3)
         set_default_ports
         change_ports_menu
+        choose_uuid_mode
         install_all
         break
         ;;
       0) break ;;
       *) log "无效选择" ;;
+    esac
+  done
+}
+
+choose_uuid_mode() {
+  while :; do
+    printf '\n'
+    log "UUID 设置"
+    log "1. 每次重新随机生成 UUID"
+    log "2. 手动输入 UUID"
+    printf '请选择 [1-2] (默认 1): '
+    read -r uuid_mode || exit 1
+    case "${uuid_mode:-1}" in
+      1)
+        CUSTOM_UUID=""
+        reset_identity
+        return 0
+        ;;
+      2)
+        printf '请输入自定义 UUID: '
+        read -r custom_uuid_input || exit 1
+        if uuid_valid "$custom_uuid_input"; then
+          CUSTOM_UUID="$custom_uuid_input"
+          reset_identity
+          return 0
+        fi
+        log "UUID 格式无效，请重新输入。"
+        ;;
+      *)
+        log "无效选择"
+        ;;
     esac
   done
 }
