@@ -12,7 +12,9 @@ CERT_DIR="$BASE_DIR/cert"
 SERVICE="/etc/systemd/system/litebox.service"
 ARGO_SERVICE="/etc/systemd/system/litebox-argo.service"
 CLI="/usr/local/bin/litebox"
-SB_CLI="/usr/local/bin/sb"
+LB_CLI="/usr/local/bin/lb"
+LB_CLI_UPPER="/usr/local/bin/LB"
+OLD_SB_CLI="/usr/local/bin/sb"
 SCRIPT_URL="https://raw.githubusercontent.com/linlvyy/litebox-singbox-mini/main/install.sh"
 
 SING_BOX_VERSION="${SING_BOX_VERSION:-latest}"
@@ -29,6 +31,7 @@ TUIC_PORT="${TUIC_PORT:-}"
 VLESS_PORT="${VLESS_PORT:-}"
 HY2_PORT="${HY2_PORT:-}"
 VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-}"
+OUTBOUND_MODE="${OUTBOUND_MODE:-}"
 
 log() { printf '%s\n' "$*"; }
 die() { log "error: $*" >&2; exit 1; }
@@ -80,6 +83,22 @@ public_ip() {
     }
   done
   hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+public_ipv6() {
+  for url in https://api64.ipify.org https://ifconfig.me; do
+    ip="$(curl -6 -fsSL --connect-timeout 3 "$url" 2>/dev/null || true)"
+    [ -n "$ip" ] && {
+      printf '%s\n' "$ip"
+      return
+    }
+  done
+  if has ip; then
+    ip -6 addr show scope global 2>/dev/null |
+      awk '/inet6/ {print $2}' |
+      cut -d/ -f1 |
+      head -n 1
+  fi
 }
 
 download_url() {
@@ -143,6 +162,7 @@ apply_saved_settings() {
   VLESS_PORT="${VLESS_PORT:-${LB_VLESS_PORT:-12666}}"
   HY2_PORT="${HY2_PORT:-${LB_HY2_PORT:-42666}}"
   VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-${LB_VMESS_LOCAL_PORT:-8080}}"
+  OUTBOUND_MODE="${OUTBOUND_MODE:-${LB_OUTBOUND_MODE:-auto}}"
 }
 
 save_env() {
@@ -169,6 +189,7 @@ LB_TUIC_PORT='$TUIC_PORT'
 LB_VLESS_PORT='$VLESS_PORT'
 LB_HY2_PORT='$HY2_PORT'
 LB_VMESS_LOCAL_PORT='$VMESS_LOCAL_PORT'
+LB_OUTBOUND_MODE='$OUTBOUND_MODE'
 EOF
   chmod 600 "$ENV_FILE"
 }
@@ -243,6 +264,10 @@ gen_cert() {
 }
 
 write_config() {
+  direct_strategy_line=""
+  if [ "$OUTBOUND_MODE" != "auto" ]; then
+    direct_strategy_line="$(printf ',\n      "domain_strategy": "%s"' "$OUTBOUND_MODE")"
+  fi
   cat >"$CONF" <<EOF
 {
   "log": {
@@ -362,7 +387,7 @@ write_config() {
   "outbounds": [
     {
       "type": "direct",
-      "tag": "direct"
+      "tag": "direct"$direct_strategy_line
     },
     {
       "type": "block",
@@ -434,7 +459,30 @@ write_cli() {
     fi
   fi
   chmod 0755 "$CLI"
-  ln -sf "$CLI" "$SB_CLI"
+  rm -f "$OLD_SB_CLI"
+  ln -sf "$CLI" "$LB_CLI"
+  ln -sf "$CLI" "$LB_CLI_UPPER"
+}
+
+extract_temp_argo_domain() {
+  journalctl -u litebox-argo.service -n 120 --no-pager 2>/dev/null |
+    sed -nE 's#.*([a-zA-Z0-9-]+\.trycloudflare\.com).*#\1#p' |
+    tail -n 1
+}
+
+wait_temp_argo_domain() {
+  tries="${1:-12}"
+  i=0
+  while [ "$i" -lt "$tries" ]; do
+    domain="$(extract_temp_argo_domain)"
+    [ -n "$domain" ] && {
+      printf '%s\n' "$domain"
+      return 0
+    }
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
 }
 
 write_links() {
@@ -444,8 +492,21 @@ write_links() {
   tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1#$NAME-tuic-v5"
   hy2="hysteria2://$LB_HY2_PASSWORD@$server:$HY2_PORT?obfs=salamander&obfs-password=$LB_HY2_OBFS&sni=$TLS_SNI&insecure=1#$NAME-hysteria2"
 
-  vmess_host="${ARGO_DOMAIN:-<your-argo-domain-from-cloudflared-log>}"
-  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s"}' "$NAME" "$vmess_host" "$LB_UUID" "$vmess_host" "$VMESS_WS_PATH" "$vmess_host" | b64_nowrap)"
+  if [ -n "$ARGO_DOMAIN" ]; then
+    vmess_add="$ARGO_DOMAIN"
+    vmess_host="$ARGO_DOMAIN"
+    vmess_sni="$ARGO_DOMAIN"
+  elif [ "$ENABLE_TEMP_ARGO" = "1" ]; then
+    temp_argo_domain="$(extract_temp_argo_domain)"
+    vmess_add="saas.sin.fan"
+    vmess_host="${temp_argo_domain:-<your-trycloudflare-domain>}"
+    vmess_sni="$vmess_host"
+  else
+    vmess_add="<argo-not-enabled>"
+    vmess_host="<argo-not-enabled>"
+    vmess_sni="$vmess_host"
+  fi
+  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s"}' "$NAME" "$vmess_add" "$LB_UUID" "$vmess_host" "$VMESS_WS_PATH" "$vmess_sni" | b64_nowrap)"
 
   cat >"$LINKS_FILE" <<EOF
 VLESS-REALITY:
@@ -467,7 +528,8 @@ Server: $server
 UUID: $LB_UUID
 Reality public key: $LB_REALITY_PUBLIC
 Reality short id: $LB_SHORT_ID
-Shortcut: sudo sb
+Outbound mode: $OUTBOUND_MODE
+Shortcut: sudo LB
 EOF
   chmod 600 "$LINKS_FILE"
 }
@@ -479,6 +541,17 @@ enable_services() {
   else
     systemctl disable --now litebox-argo.service 2>/dev/null || true
   fi
+}
+
+outbound_mode_text() {
+  case "$OUTBOUND_MODE" in
+    auto) printf '自动' ;;
+    prefer_ipv4) printf 'IPv4 优先' ;;
+    prefer_ipv6) printf 'IPv6 优先' ;;
+    ipv4_only) printf '仅 IPv4' ;;
+    ipv6_only) printf '仅 IPv6' ;;
+    *) printf '%s' "$OUTBOUND_MODE" ;;
+  esac
 }
 
 restart_all() {
@@ -525,6 +598,43 @@ set_default_ports() {
   TUIC_PORT=32666
   HY2_PORT=42666
   VMESS_LOCAL_PORT=8080
+}
+
+switch_outbound_menu() {
+  if is_installed; then
+    load_or_create_env
+  else
+    apply_saved_settings
+  fi
+  while :; do
+    printf '\n'
+    log "IPv4 / IPv6 出口切换"
+    log "当前模式: $(outbound_mode_text)"
+    log "1. 自动"
+    log "2. IPv4 优先"
+    log "3. IPv6 优先"
+    log "4. 仅 IPv4"
+    log "5. 仅 IPv6"
+    log "0. 返回上层"
+    printf '请选择 [0-5]: '
+    read -r action || exit 1
+    case "$action" in
+      1) OUTBOUND_MODE="auto" ;;
+      2) OUTBOUND_MODE="prefer_ipv4" ;;
+      3) OUTBOUND_MODE="prefer_ipv6" ;;
+      4) OUTBOUND_MODE="ipv4_only" ;;
+      5) OUTBOUND_MODE="ipv6_only" ;;
+      0) break ;;
+      *) log "无效选择"; continue ;;
+    esac
+    if [ "$action" != "0" ]; then
+      if is_installed; then
+        apply_changes
+      fi
+      log "出口模式已切换为: $(outbound_mode_text)"
+      break
+    fi
+  done
 }
 
 prompt_port() {
@@ -664,7 +774,7 @@ show_links() {
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     printf '\n'
     log "临时 Argo 提示:"
-    log "请用 'sudo litebox logs 80' 或 'sudo sb logs 80' 查看 trycloudflare.com 域名。"
+    log "请用 'sudo litebox logs 80'、'sudo LB logs 80' 或 'sudo lb logs 80' 查看 trycloudflare.com 域名。"
   fi
 }
 
@@ -691,7 +801,7 @@ uninstall_all() {
   need_root
   systemctl disable --now litebox.service 2>/dev/null || true
   systemctl disable --now litebox-argo.service 2>/dev/null || true
-  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$SB_CLI" "$BIN" "$CLOUDFLARED_BIN"
+  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$BIN" "$CLOUDFLARED_BIN"
   rm -rf "$BASE_DIR"
   systemctl daemon-reload
   log "Litebox 已彻底卸载完成。"
@@ -735,37 +845,47 @@ show_menu() {
   while :; do
     printf '\n'
     log "Litebox 快捷菜单"
+    current_ipv4="$(public_ip || true)"
+    current_ipv6="$(public_ipv6 || true)"
     if is_installed; then
       load_or_create_env
       log "安装状态: 已安装"
-      log "快捷命令: sudo sb"
+      log "快捷命令: sudo LB / sudo lb"
       log "Argo 状态: $(argo_mode_text)"
+      log "本机 IPv4: ${current_ipv4:-未检测到}"
+      log "本机 IPv6: ${current_ipv6:-未检测到}"
+      log "出口模式: $(outbound_mode_text)"
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
     else
       apply_saved_settings
       log "安装状态: 未安装"
-      log "安装后快捷命令: sudo sb"
+      log "安装后快捷命令: sudo LB / sudo lb"
+      log "本机 IPv4: ${current_ipv4:-未检测到}"
+      log "本机 IPv6: ${current_ipv6:-未检测到}"
+      log "出口模式: $(outbound_mode_text)"
       log "默认端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
     fi
     printf '\n'
     log "1. 安装或重装 Litebox"
     log "2. Argo 隧道设置"
     log "3. 端口设置"
-    log "4. 重启 Litebox"
-    log "5. 刷新并查看节点"
-    log "6. 查看运行日志"
-    log "7. 彻底卸载 Litebox"
+    log "4. IPv4 / IPv6 出口切换"
+    log "5. 重启 Litebox"
+    log "6. 刷新并查看节点"
+    log "7. 查看运行日志"
+    log "8. 彻底卸载 Litebox"
     log "0. 退出脚本"
-    printf '请选择 [0-7]: '
+    printf '请选择 [0-8]: '
     read -r action || exit 1
     case "$action" in
       1) install_menu ;;
       2) argo_menu ;;
       3) change_ports_menu ;;
-      4) restart_all; log "服务已重启" ;;
-      5) show_links ;;
-      6) show_logs 80 ;;
-      7)
+      4) switch_outbound_menu ;;
+      5) restart_all; log "服务已重启" ;;
+      6) show_links ;;
+      7) show_logs 80 ;;
+      8)
         uninstall_all
         break
         ;;
@@ -788,6 +908,10 @@ install_all() {
   write_cli
   write_links
   enable_services
+  if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
+    wait_temp_argo_domain 15 >/dev/null 2>&1 || true
+    write_links
+  fi
   log "安装完成，节点信息文件: $LINKS_FILE"
   cat "$LINKS_FILE"
 }
