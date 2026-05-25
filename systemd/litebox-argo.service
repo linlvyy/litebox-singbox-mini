@@ -1,0 +1,14 @@
+[Unit]
+Description=Litebox Cloudflare Argo tunnel
+After=network-online.target litebox.service
+Wants=network-online.target
+Requires=litebox.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:18080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
