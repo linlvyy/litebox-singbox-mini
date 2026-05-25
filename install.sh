@@ -138,11 +138,11 @@ apply_saved_settings() {
   ARGO_DOMAIN="${ARGO_DOMAIN:-${LB_ARGO_DOMAIN:-}}"
   ARGO_TOKEN="${ARGO_TOKEN:-${LB_ARGO_TOKEN:-}}"
   ENABLE_TEMP_ARGO="${ENABLE_TEMP_ARGO:-${LB_ENABLE_TEMP_ARGO:-0}}"
-  ANYTLS_PORT="${ANYTLS_PORT:-${LB_ANYTLS_PORT:-8443}}"
-  TUIC_PORT="${TUIC_PORT:-${LB_TUIC_PORT:-9443}}"
-  VLESS_PORT="${VLESS_PORT:-${LB_VLESS_PORT:-443}}"
-  HY2_PORT="${HY2_PORT:-${LB_HY2_PORT:-8444}}"
-  VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-${LB_VMESS_LOCAL_PORT:-18080}}"
+  ANYTLS_PORT="${ANYTLS_PORT:-${LB_ANYTLS_PORT:-22666}}"
+  TUIC_PORT="${TUIC_PORT:-${LB_TUIC_PORT:-32666}}"
+  VLESS_PORT="${VLESS_PORT:-${LB_VLESS_PORT:-12666}}"
+  HY2_PORT="${HY2_PORT:-${LB_HY2_PORT:-42666}}"
+  VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-${LB_VMESS_LOCAL_PORT:-8080}}"
 }
 
 save_env() {
@@ -520,11 +520,11 @@ set_random_ports() {
 }
 
 set_default_ports() {
-  VLESS_PORT=443
-  ANYTLS_PORT=8443
-  TUIC_PORT=9443
-  HY2_PORT=8444
-  VMESS_LOCAL_PORT=18080
+  VLESS_PORT=12666
+  ANYTLS_PORT=22666
+  TUIC_PORT=32666
+  HY2_PORT=42666
+  VMESS_LOCAL_PORT=8080
 }
 
 prompt_port() {
@@ -538,58 +538,67 @@ prompt_port() {
       printf '%s\n' "$value"
       return
     fi
-    log "invalid port, try again"
+    log "端口无效，请重新输入"
   done
 }
 
 change_ports_menu() {
-  require_installed
-  load_or_create_env
+  if is_installed; then
+    load_or_create_env
+  else
+    apply_saved_settings
+  fi
   while :; do
     printf '\n'
-    log "Port settings"
-    log "1. Use recommended default ports"
-    log "2. Randomize all public ports"
-    log "3. Set ports manually"
-    log "0. Back"
-    printf 'Choose [0-3]: '
+    log "端口设置"
+    log "1. 使用推荐默认端口"
+    log "2. 随机生成合适端口"
+    log "3. 手动自定义端口"
+    log "0. 返回上层"
+    printf '请选择 [0-3]: '
     read -r action || exit 1
     case "$action" in
       1)
         set_default_ports
-        apply_changes
-        log "ports reset to defaults"
+        if is_installed; then
+          apply_changes
+        fi
+        log "已切换为默认端口"
         break
         ;;
       2)
         set_random_ports
-        apply_changes
-        log "ports randomized"
+        if is_installed; then
+          apply_changes
+        fi
+        log "已生成随机端口"
         break
         ;;
       3)
-        VLESS_PORT="$(prompt_port 'VLESS Reality port' "$VLESS_PORT")"
-        ANYTLS_PORT="$(prompt_port 'AnyTLS port' "$ANYTLS_PORT")"
-        TUIC_PORT="$(prompt_port 'TUIC v5 port' "$TUIC_PORT")"
-        HY2_PORT="$(prompt_port 'Hysteria2 port' "$HY2_PORT")"
-        VMESS_LOCAL_PORT="$(prompt_port 'VMess local port (127.0.0.1 only)' "$VMESS_LOCAL_PORT")"
-        apply_changes
-        log "ports updated"
+        VLESS_PORT="$(prompt_port 'VLESS Reality 端口' "$VLESS_PORT")"
+        ANYTLS_PORT="$(prompt_port 'AnyTLS 端口' "$ANYTLS_PORT")"
+        TUIC_PORT="$(prompt_port 'TUIC v5 端口' "$TUIC_PORT")"
+        HY2_PORT="$(prompt_port 'Hysteria2 端口' "$HY2_PORT")"
+        VMESS_LOCAL_PORT="$(prompt_port 'WS 本地端口(仅 127.0.0.1)' "$VMESS_LOCAL_PORT")"
+        if is_installed; then
+          apply_changes
+        fi
+        log "端口已更新"
         break
         ;;
       0) break ;;
-      *) log "invalid selection" ;;
+      *) log "无效选择" ;;
     esac
   done
 }
 
 argo_mode_text() {
   if [ -n "${LB_ARGO_TOKEN:-}" ]; then
-    printf 'fixed'
+    printf '固定隧道'
   elif [ "${LB_ENABLE_TEMP_ARGO:-0}" = "1" ]; then
-    printf 'temporary'
+    printf '临时隧道'
   else
-    printf 'disabled'
+    printf '已关闭'
   fi
 }
 
@@ -598,21 +607,21 @@ set_argo_temp() {
   ARGO_DOMAIN=""
   ENABLE_TEMP_ARGO=1
   apply_changes
-  log "temporary argo enabled"
+  log "已启用临时 Argo。"
 }
 
 set_argo_fixed() {
-  printf 'Argo tunnel token: '
+  printf '请输入 Argo 隧道 Token: '
   read -r token || exit 1
-  [ -n "$token" ] || die "token cannot be empty"
-  printf 'Argo public domain: '
+  [ -n "$token" ] || die "Token 不能为空"
+  printf '请输入固定 Argo 域名: '
   read -r domain || exit 1
-  [ -n "$domain" ] || die "domain cannot be empty"
+  [ -n "$domain" ] || die "域名不能为空"
   ARGO_TOKEN="$token"
   ARGO_DOMAIN="$domain"
   ENABLE_TEMP_ARGO=0
   apply_changes
-  log "fixed argo enabled"
+  log "已启用固定 Argo。"
 }
 
 disable_argo() {
@@ -620,7 +629,7 @@ disable_argo() {
   ARGO_DOMAIN=""
   ENABLE_TEMP_ARGO=0
   apply_changes
-  log "argo disabled"
+  log "已关闭 Argo。"
 }
 
 argo_menu() {
@@ -628,21 +637,21 @@ argo_menu() {
   load_or_create_env
   while :; do
     printf '\n'
-    log "Argo tunnel settings"
-    log "Current mode: $(argo_mode_text)"
-    [ -n "${LB_ARGO_DOMAIN:-}" ] && log "Current domain: $LB_ARGO_DOMAIN"
-    log "1. Enable or refresh temporary Argo"
-    log "2. Enable or refresh fixed Argo"
-    log "3. Disable Argo"
-    log "0. Back"
-    printf 'Choose [0-3]: '
+    log "Argo 隧道设置"
+    log "当前模式: $(argo_mode_text)"
+    [ -n "${LB_ARGO_DOMAIN:-}" ] && log "当前域名: $LB_ARGO_DOMAIN"
+    log "1. 启用或刷新临时 Argo"
+    log "2. 启用或刷新固定 Argo"
+    log "3. 关闭 Argo"
+    log "0. 返回上层"
+    printf '请选择 [0-3]: '
     read -r action || exit 1
     case "$action" in
       1) set_argo_temp; break ;;
       2) set_argo_fixed; break ;;
       3) disable_argo; break ;;
       0) break ;;
-      *) log "invalid selection" ;;
+      *) log "无效选择" ;;
     esac
   done
 }
@@ -654,8 +663,8 @@ show_links() {
   cat "$LINKS_FILE"
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     printf '\n'
-    log "Temporary Argo hint:"
-    log "Use 'sudo litebox logs 80' or 'sudo sb logs 80' to find the trycloudflare.com domain."
+    log "临时 Argo 提示:"
+    log "请用 'sudo litebox logs 80' 或 'sudo sb logs 80' 查看 trycloudflare.com 域名。"
   fi
 }
 
@@ -682,46 +691,86 @@ uninstall_all() {
   need_root
   systemctl disable --now litebox.service 2>/dev/null || true
   systemctl disable --now litebox-argo.service 2>/dev/null || true
-  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$SB_CLI"
+  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$SB_CLI" "$BIN" "$CLOUDFLARED_BIN"
+  rm -rf "$BASE_DIR"
   systemctl daemon-reload
-  log "kept $BASE_DIR for credentials. remove it manually if you no longer need links."
+  log "Litebox 已彻底卸载完成。"
+}
+
+install_menu() {
+  apply_saved_settings
+  while :; do
+    printf '\n'
+    log "安装设置"
+    log "1. 使用默认端口安装"
+    log "2. 使用随机端口安装"
+    log "3. 自定义端口后安装"
+    log "0. 返回主菜单"
+    printf '请选择 [0-3]: '
+    read -r action || exit 1
+    case "$action" in
+      1)
+        set_default_ports
+        install_all
+        break
+        ;;
+      2)
+        set_random_ports
+        install_all
+        break
+        ;;
+      3)
+        set_default_ports
+        change_ports_menu
+        install_all
+        break
+        ;;
+      0) break ;;
+      *) log "无效选择" ;;
+    esac
+  done
 }
 
 show_menu() {
   while :; do
     printf '\n'
-    log "Litebox quick menu"
+    log "Litebox 快捷菜单"
     if is_installed; then
       load_or_create_env
-      log "Installed: yes"
-      log "Shortcut: sudo sb"
-      log "Argo: $(argo_mode_text)"
-      log "Ports: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT"
+      log "安装状态: 已安装"
+      log "快捷命令: sudo sb"
+      log "Argo 状态: $(argo_mode_text)"
+      log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
     else
-      log "Installed: no"
-      log "Shortcut after install: sudo sb"
+      apply_saved_settings
+      log "安装状态: 未安装"
+      log "安装后快捷命令: sudo sb"
+      log "默认端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
     fi
     printf '\n'
-    log "1. Install or reinstall Litebox"
-    log "2. Uninstall Litebox"
-    log "3. Argo tunnel settings"
-    log "4. Change ports"
-    log "6. Restart Litebox"
-    log "9. Refresh and show node links"
-    log "10. View logs"
-    log "0. Exit"
-    printf 'Choose [0-10]: '
+    log "1. 安装或重装 Litebox"
+    log "2. Argo 隧道设置"
+    log "3. 端口设置"
+    log "4. 重启 Litebox"
+    log "5. 刷新并查看节点"
+    log "6. 查看运行日志"
+    log "7. 彻底卸载 Litebox"
+    log "0. 退出脚本"
+    printf '请选择 [0-7]: '
     read -r action || exit 1
     case "$action" in
-      1) install_all ;;
-      2) uninstall_all ;;
-      3) argo_menu ;;
-      4) change_ports_menu ;;
-      6) restart_all; log "services restarted" ;;
-      9) show_links ;;
-      10) show_logs 80 ;;
+      1) install_menu ;;
+      2) argo_menu ;;
+      3) change_ports_menu ;;
+      4) restart_all; log "服务已重启" ;;
+      5) show_links ;;
+      6) show_logs 80 ;;
+      7)
+        uninstall_all
+        break
+        ;;
       0) break ;;
-      *) log "invalid selection" ;;
+      *) log "无效选择" ;;
     esac
   done
 }
@@ -739,16 +788,12 @@ install_all() {
   write_cli
   write_links
   enable_services
-  log "done. links: $LINKS_FILE"
+  log "安装完成，节点信息文件: $LINKS_FILE"
   cat "$LINKS_FILE"
 }
 
 default_action() {
-  prog="$(basename "$0")"
-  case "$prog" in
-    litebox|sb) printf 'menu' ;;
-    *) printf 'install' ;;
-  esac
+  printf 'menu'
 }
 
 case "${1:-$(default_action)}" in
@@ -762,5 +807,5 @@ case "${1:-$(default_action)}" in
   ports) change_ports_menu ;;
   argo) argo_menu ;;
   menu) show_menu ;;
-  *) die "usage: $0 [install|status|config|info|logs [lines]|restart|uninstall|ports|argo|menu]" ;;
+  *) die "用法: $0 [install|status|config|info|logs [lines]|restart|uninstall|ports|argo|menu]" ;;
 esac
