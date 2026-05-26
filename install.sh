@@ -9,13 +9,20 @@ CONF="$BASE_DIR/config.json"
 ENV_FILE="$BASE_DIR/env"
 LINKS_FILE="$BASE_DIR/links.txt"
 CERT_DIR="$BASE_DIR/cert"
-SERVICE="/etc/systemd/system/litebox.service"
-ARGO_SERVICE="/etc/systemd/system/litebox-argo.service"
+SERVICE=""
+ARGO_SERVICE=""
 CLI="/usr/local/bin/litebox"
 LB_CLI="/usr/local/bin/lb"
 LB_CLI_UPPER="/usr/local/bin/LB"
 OLD_SB_CLI="/usr/local/bin/sb"
 SCRIPT_URL="https://raw.githubusercontent.com/linlvyy/litebox-singbox-mini/main/install.sh"
+RUN_LITEBOX="$BASE_DIR/run-litebox.sh"
+RUN_ARGO="$BASE_DIR/run-argo.sh"
+MAIN_LOG="$BASE_DIR/litebox.log"
+ARGO_LOG="$BASE_DIR/argo.log"
+LITEBOX_PID="/run/litebox.pid"
+ARGO_PID="/run/litebox-argo.pid"
+INIT_SYSTEM=""
 
 SING_BOX_VERSION="${SING_BOX_VERSION:-latest}"
 SERVER="${SERVER:-}"
@@ -41,6 +48,119 @@ log() { printf '%s\n' "$*"; }
 die() { log "error: $*" >&2; exit 1; }
 need_root() { [ "$(id -u)" = "0" ] || die "please run as root"; }
 has() { command -v "$1" >/dev/null 2>&1; }
+
+detect_init_system() {
+  if [ -n "$INIT_SYSTEM" ]; then
+    return 0
+  fi
+  if has systemctl; then
+    INIT_SYSTEM="systemd"
+    SERVICE="/etc/systemd/system/litebox.service"
+    ARGO_SERVICE="/etc/systemd/system/litebox-argo.service"
+    return 0
+  fi
+  if has rc-service && has rc-update; then
+    INIT_SYSTEM="openrc"
+    SERVICE="/etc/init.d/litebox"
+    ARGO_SERVICE="/etc/init.d/litebox-argo"
+    return 0
+  fi
+  INIT_SYSTEM="unknown"
+  SERVICE="$BASE_DIR/litebox.service"
+  ARGO_SERVICE="$BASE_DIR/litebox-argo.service"
+}
+
+service_reload() {
+  detect_init_system
+  case "$INIT_SYSTEM" in
+    systemd) systemctl daemon-reload ;;
+    openrc) true ;;
+    *) die "unsupported init system: need systemd or openrc" ;;
+  esac
+}
+
+service_enable_start() {
+  detect_init_system
+  name="$1"
+  case "$INIT_SYSTEM" in
+    systemd)
+      systemctl enable --now "$name"
+      ;;
+    openrc)
+      rc-update add "$name" default >/dev/null 2>&1 || true
+      rc-service "$name" restart >/dev/null 2>&1 || rc-service "$name" start
+      ;;
+    *)
+      die "unsupported init system: need systemd or openrc"
+      ;;
+  esac
+}
+
+service_disable_stop() {
+  detect_init_system
+  name="$1"
+  case "$INIT_SYSTEM" in
+    systemd)
+      systemctl disable --now "$name" 2>/dev/null || true
+      ;;
+    openrc)
+      rc-service "$name" stop >/dev/null 2>&1 || true
+      rc-update del "$name" default >/dev/null 2>&1 || true
+      ;;
+    *)
+      true
+      ;;
+  esac
+}
+
+service_restart_cmd() {
+  detect_init_system
+  name="$1"
+  case "$INIT_SYSTEM" in
+    systemd)
+      systemctl restart "$name"
+      ;;
+    openrc)
+      rc-service "$name" restart
+      ;;
+    *)
+      die "unsupported init system: need systemd or openrc"
+      ;;
+  esac
+}
+
+service_status_cmd() {
+  detect_init_system
+  name="$1"
+  case "$INIT_SYSTEM" in
+    systemd)
+      systemctl --no-pager --full status "$name"
+      ;;
+    openrc)
+      rc-service "$name" status
+      ;;
+    *)
+      die "unsupported init system: need systemd or openrc"
+      ;;
+  esac
+}
+
+show_combined_logs() {
+  detect_init_system
+  lines="${1:-80}"
+  case "$INIT_SYSTEM" in
+    systemd)
+      journalctl -u litebox.service -u litebox-argo.service -n "$lines" --no-pager
+      ;;
+    openrc)
+      [ -f "$MAIN_LOG" ] && tail -n "$lines" "$MAIN_LOG"
+      [ -f "$ARGO_LOG" ] && tail -n "$lines" "$ARGO_LOG"
+      ;;
+    *)
+      die "unsupported init system: need systemd or openrc"
+      ;;
+  esac
+}
 
 rand_hex() {
   if has openssl; then
@@ -143,9 +263,11 @@ arch_name() {
 }
 
 install_deps_hint() {
-  for c in curl tar openssl sed grep awk systemctl; do
+  for c in curl tar openssl sed grep awk; do
     has "$c" || die "missing $c"
   done
+  detect_init_system
+  [ "$INIT_SYSTEM" != "unknown" ] || die "missing service manager: need systemd or openrc"
 }
 
 is_installed() {
@@ -519,7 +641,17 @@ EOF
 }
 
 write_services() {
-  cat >"$SERVICE" <<EOF
+  detect_init_system
+  mkdir -p "$BASE_DIR"
+
+  cat >"$RUN_LITEBOX" <<EOF
+#!/bin/sh
+exec "$BIN" run -c "$CONF" >>"$MAIN_LOG" 2>&1
+EOF
+  chmod 0755 "$RUN_LITEBOX"
+
+  if [ "$INIT_SYSTEM" = "systemd" ]; then
+    cat >"$SERVICE" <<EOF
 [Unit]
 Description=Litebox sing-box nodes
 After=network-online.target
@@ -535,6 +667,20 @@ LimitNOFILE=65535
 [Install]
 WantedBy=multi-user.target
 EOF
+  else
+    cat >"$SERVICE" <<EOF
+#!/sbin/openrc-run
+description="Litebox sing-box nodes"
+command="$RUN_LITEBOX"
+command_background=true
+pidfile="$LITEBOX_PID"
+
+depend() {
+  need net
+}
+EOF
+    chmod 0755 "$SERVICE"
+  fi
 
   if [ -n "$ARGO_TOKEN" ] || [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     if [ -n "$ARGO_TOKEN" ]; then
@@ -542,8 +688,14 @@ EOF
     else
       argo_cmd="$CLOUDFLARED_BIN tunnel --no-autoupdate --url http://127.0.0.1:$VMESS_LOCAL_PORT"
     fi
-    : >"$BASE_DIR/argo.log"
-    cat >"$ARGO_SERVICE" <<EOF
+    cat >"$RUN_ARGO" <<EOF
+#!/bin/sh
+exec $argo_cmd >>"$ARGO_LOG" 2>&1
+EOF
+    chmod 0755 "$RUN_ARGO"
+    : >"$ARGO_LOG"
+    if [ "$INIT_SYSTEM" = "systemd" ]; then
+      cat >"$ARGO_SERVICE" <<EOF
 [Unit]
 Description=Litebox Cloudflare Argo tunnel
 After=network-online.target litebox.service
@@ -561,11 +713,25 @@ StandardError=append:$BASE_DIR/argo.log
 [Install]
 WantedBy=multi-user.target
 EOF
+    else
+      cat >"$ARGO_SERVICE" <<EOF
+#!/sbin/openrc-run
+description="Litebox Cloudflare Argo tunnel"
+command="$RUN_ARGO"
+command_background=true
+pidfile="$ARGO_PID"
+
+depend() {
+  need net litebox
+}
+EOF
+      chmod 0755 "$ARGO_SERVICE"
+    fi
   else
-    rm -f "$ARGO_SERVICE"
+    rm -f "$ARGO_SERVICE" "$RUN_ARGO"
   fi
 
-  systemctl daemon-reload
+  service_reload
 }
 
 write_cli() {
@@ -598,7 +764,9 @@ extract_temp_argo_domain() {
       return
     }
   fi
-  journalctl -u litebox-argo.service -n 120 --no-pager 2>/dev/null | extract_best_domain_stream
+  if has journalctl; then
+    journalctl -u litebox-argo.service -n 120 --no-pager 2>/dev/null | extract_best_domain_stream
+  fi
 }
 
 wait_temp_argo_domain() {
@@ -628,7 +796,7 @@ current_argo_host() {
 
 refresh_temp_argo_links() {
   [ "$ENABLE_TEMP_ARGO" = "1" ] || return 0
-  systemctl restart litebox-argo.service 2>/dev/null || true
+  service_restart_cmd litebox-argo >/dev/null 2>&1 || true
   if host="$(wait_temp_argo_domain 20)"; then
     write_links
     log "临时 Argo HOST: $host"
@@ -693,11 +861,11 @@ EOF
 }
 
 enable_services() {
-  systemctl enable --now litebox.service
+  service_enable_start litebox
   if [ -n "$ARGO_TOKEN" ] || [ "$ENABLE_TEMP_ARGO" = "1" ]; then
-    systemctl enable --now litebox-argo.service || true
+    service_enable_start litebox-argo || true
   else
-    systemctl disable --now litebox-argo.service 2>/dev/null || true
+    service_disable_stop litebox-argo
   fi
 }
 
@@ -714,9 +882,9 @@ outbound_mode_text() {
 
 restart_all() {
   require_installed
-  systemctl restart litebox.service
+  service_restart_cmd litebox
   if [ -f "$ARGO_SERVICE" ]; then
-    systemctl restart litebox-argo.service || true
+    service_restart_cmd litebox-argo || true
   fi
 }
 
@@ -1154,12 +1322,14 @@ show_links() {
 }
 
 show_logs() {
-  journalctl -u litebox.service -u litebox-argo.service -n "${1:-80}" --no-pager
+  show_combined_logs "${1:-80}"
 }
 
 status_all() {
-  systemctl --no-pager --full status litebox.service || true
-  systemctl --no-pager --full status litebox-argo.service 2>/dev/null || true
+  service_status_cmd litebox || true
+  if [ -f "$ARGO_SERVICE" ]; then
+    service_status_cmd litebox-argo || true
+  fi
 }
 
 info_all() {
@@ -1174,12 +1344,12 @@ config_all() {
 
 uninstall_all() {
   need_root
-  systemctl disable --now litebox.service 2>/dev/null || true
-  systemctl disable --now litebox-argo.service 2>/dev/null || true
+  service_disable_stop litebox
+  service_disable_stop litebox-argo
   clear_port_hops
-  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$BIN" "$CLOUDFLARED_BIN"
+  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$BIN" "$CLOUDFLARED_BIN" "$RUN_LITEBOX" "$RUN_ARGO"
   rm -rf "$BASE_DIR"
-  systemctl daemon-reload
+  service_reload
   log "Litebox 已彻底卸载完成。"
 }
 
