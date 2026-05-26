@@ -310,7 +310,7 @@ install_sing_box() {
   arch="$(arch_name)"
   tmp="$(mktemp -d)"
   if [ "$SING_BOX_VERSION" = "latest" ]; then
-    url="$(download_url SagerNet/sing-box "linux-$arch.*\\.tar\\.gz")"
+    url="$(download_url SagerNet/sing-box "linux-$arch.*\.tar\.gz")"
   else
     url="https://github.com/SagerNet/sing-box/releases/download/${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION#v}-linux-${arch}.tar.gz"
   fi
@@ -352,147 +352,147 @@ write_config() {
   direct_resolver_line=""
   if [ "$OUTBOUND_MODE" != "auto" ]; then
     dns_block="$(cat <<EOF
-  \"dns\": {
-    \"servers\": [
+  "dns": {
+    "servers": [
       {
-        \"type\": \"local\",
-        \"tag\": \"local\"
+        "type": "local",
+        "tag": "local"
       }
     ]
   },
 EOF
 )"
-    direct_resolver_line="$(printf ',\n      \"domain_resolver\": {\n        \"server\": \"local\",\n        \"strategy\": \"%s\"\n      }' "$OUTBOUND_MODE")"
+    direct_resolver_line="$(printf ',\n      "domain_resolver": {\n        "server": "local",\n        "strategy": "%s"\n      }' "$OUTBOUND_MODE")"
   fi
   cat >"$CONF" <<EOF
 {
-  \"log\": {
-    \"level\": \"warn\",
-    \"timestamp\": false
+  "log": {
+    "level": "warn",
+    "timestamp": false
   },
 $dns_block
-  \"inbounds\": [
+  "inbounds": [
     {
-      \"type\": \"vless\",
-      \"tag\": \"vless-reality\",
-      \"listen\": \"::\",
-      \"listen_port\": $VLESS_PORT,
-      \"users\": [
+      "type": "vless",
+      "tag": "vless-reality",
+      "listen": "::",
+      "listen_port": $VLESS_PORT,
+      "users": [
         {
-          \"name\": \"$NAME\",
-          \"uuid\": \"$LB_UUID\",
-          \"flow\": \"xtls-rprx-vision\"
+          "name": "$NAME",
+          "uuid": "$LB_UUID",
+          "flow": "xtls-rprx-vision"
         }
       ],
-      \"tls\": {
-        \"enabled\": true,
-        \"server_name\": \"$REALITY_SNI\",
-        \"reality\": {
-          \"enabled\": true,
-          \"handshake\": {
-            \"server\": \"$REALITY_SNI\",
-            \"server_port\": 443
+      "tls": {
+        "enabled": true,
+        "server_name": "$REALITY_SNI",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "$REALITY_SNI",
+            "server_port": 443
           },
-          \"private_key\": \"$LB_REALITY_PRIVATE\",
-          \"short_id\": [\"$LB_SHORT_ID\"]
+          "private_key": "$LB_REALITY_PRIVATE",
+          "short_id": ["$LB_SHORT_ID"]
         }
       }
     },
     {
-      \"type\": \"anytls\",
-      \"tag\": \"anytls\",
-      \"listen\": \"::\",
-      \"listen_port\": $ANYTLS_PORT,
-      \"users\": [
+      "type": "anytls",
+      "tag": "anytls",
+      "listen": "::",
+      "listen_port": $ANYTLS_PORT,
+      "users": [
         {
-          \"name\": \"$NAME\",
-          \"password\": \"$LB_ANYTLS_PASSWORD\"
+          "name": "$NAME",
+          "password": "$LB_ANYTLS_PASSWORD"
         }
       ],
-      \"tls\": {
-        \"enabled\": true,
-        \"server_name\": \"$TLS_SNI\",
-        \"certificate_path\": "$CERT_DIR/cert.pem",
-        \"key_path\": "$CERT_DIR/key.pem"
+      "tls": {
+        "enabled": true,
+        "server_name": "$TLS_SNI",
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/key.pem"
       }
     },
     {
-      \"type\": \"tuic\",
-      \"tag\": \"tuic-v5\",
-      \"listen\": \"::\",
-      \"listen_port\": $TUIC_PORT,
-      \"users\": [
+      "type": "tuic",
+      "tag": "tuic-v5",
+      "listen": "::",
+      "listen_port": $TUIC_PORT,
+      "users": [
         {
-          \"name\": \"$NAME\",
-          \"uuid\": \"$LB_UUID\",
-          \"password\": \"$LB_TUIC_PASSWORD\"
+          "name": "$NAME",
+          "uuid": "$LB_UUID",
+          "password": "$LB_TUIC_PASSWORD"
         }
       ],
-      \"congestion_control\": \"bbr\",
-      \"zero_rtt_handshake\": false,
-      \"heartbeat\": \"10s\",
-      \"tls\": {
-        \"enabled\": true,
-        \"server_name\": \"$TLS_SNI\",
-        \"alpn\": [\"h3\"],
-        \"certificate_path\": "$CERT_DIR/cert.pem",
-        \"key_path\": "$CERT_DIR/key.pem"
+      "congestion_control": "bbr",
+      "zero_rtt_handshake": false,
+      "heartbeat": "10s",
+      "tls": {
+        "enabled": true,
+        "server_name": "$TLS_SNI",
+        "alpn": ["h3"],
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/key.pem"
       }
     },
     {
-      \"type\": \"hysteria2\",
-      \"tag\": \"hysteria2\",
-      \"listen\": \"::\",
-      \"listen_port\": $HY2_PORT,
-      \"obfs\": {
-        \"type\": \"salamander\",
-        \"password\": \"$LB_HY2_OBFS\"
+      "type": "hysteria2",
+      "tag": "hysteria2",
+      "listen": "::",
+      "listen_port": $HY2_PORT,
+      "obfs": {
+        "type": "salamander",
+        "password": "$LB_HY2_OBFS"
       },
-      \"users\": [
+      "users": [
         {
-          \"name\": \"$NAME\",
-          \"password\": \"$LB_HY2_PASSWORD\"
+          "name": "$NAME",
+          "password": "$LB_HY2_PASSWORD"
         }
       ],
-      \"ignore_client_bandwidth\": true,
-      \"tls\": {
-        \"enabled\": true,
-        \"server_name\": \"$TLS_SNI\",
-        \"alpn\": [\"h3\"],
-        \"certificate_path\": "$CERT_DIR/cert.pem",
-        \"key_path\": "$CERT_DIR/key.pem"
+      "ignore_client_bandwidth": true,
+      "tls": {
+        "enabled": true,
+        "server_name": "$TLS_SNI",
+        "alpn": ["h3"],
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/key.pem"
       }
     },
     {
-      \"type\": \"vmess\",
-      \"tag\": \"vmess-ws-argo\",
-      \"listen\": \"127.0.0.1\",
-      \"listen_port\": $VMESS_LOCAL_PORT,
-      \"users\": [
+      "type": "vmess",
+      "tag": "vmess-ws-argo",
+      "listen": "127.0.0.1",
+      "listen_port": $VMESS_LOCAL_PORT,
+      "users": [
         {
-          \"name\": \"$NAME\",
-          \"uuid\": \"$LB_UUID\",
-          \"alterId\": 0
+          "name": "$NAME",
+          "uuid": "$LB_UUID",
+          "alterId": 0
         }
       ],
-      \"transport\": {
-        \"type\": \"ws\",
-        \"path\": \"$VMESS_WS_PATH\"
+      "transport": {
+        "type": "ws",
+        "path": "$VMESS_WS_PATH"
       }
     }
   ],
-  \"outbounds\": [
+  "outbounds": [
     {
-      \"type\": \"direct\",
-      \"tag\": \"direct\"$direct_resolver_line
+      "type": "direct",
+      "tag": "direct"$direct_resolver_line
     },
     {
-      \"type\": \"block\",
-      \"tag\": \"block\"
+      "type": "block",
+      "tag": "block"
     }
   ],
-  \"route\": {
-    \"final\": \"direct\"
+  "route": {
+    "final": "direct"
   }
 }
 EOF
@@ -833,7 +833,7 @@ apply_port_hops() {
 }
 
 hop_ports_valid() {
-  input="$1"
+  input="$(printf '%s' "$1" | tr '，' ',')"
   [ -z "$input" ] && return 0
   oldifs="$IFS"
   IFS=','
@@ -858,6 +858,7 @@ prompt_hop_ports() {
     printf '%s [%s]: ' "$label" "${current:-留空表示关闭}" >&2
     read -r value || exit 1
     [ -z "$value" ] && value="$current"
+    value="$(printf '%s' "$value" | tr '，' ',')"
     if hop_ports_valid "$value"; then
       printf '%s\n' "$value"
       return
