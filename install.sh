@@ -302,7 +302,7 @@ install_sing_box() {
   arch="$(arch_name)"
   tmp="$(mktemp -d)"
   if [ "$SING_BOX_VERSION" = "latest" ]; then
-    url="$(download_url SagerNet/sing-box "linux-$arch.*\\.tar\\.gz")"
+    url="$(download_url SagerNet/sing-box "linux-$arch.*\.tar\.gz")"
   else
     url="https://github.com/SagerNet/sing-box/releases/download/${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION#v}-linux-${arch}.tar.gz"
   fi
@@ -626,7 +626,7 @@ write_links() {
     vmess_sni="$ARGO_DOMAIN"
   elif [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     temp_argo_domain="$(extract_temp_argo_domain)"
-    vmess_add="cloudflare-ech.com"
+    vmess_add="saas.sin.fan"
     vmess_port="8443"
     vmess_host="${temp_argo_domain:-<your-trycloudflare-domain>}"
     vmess_sni="$vmess_host"
@@ -1039,6 +1039,12 @@ uninstall_all() {
 }
 
 install_menu() {
+  if is_installed; then
+    printf '\n'
+    log "Litebox 当前已经安装。"
+    log "如果要重新安装，请先选择主菜单里的“8. 彻底卸载 Litebox”，再重新执行安装。"
+    return 0
+  fi
   apply_saved_settings
   CUSTOM_UUID=""
   while :; do
