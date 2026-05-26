@@ -243,6 +243,7 @@ EOF
 load_or_create_env() {
   mkdir -p "$BASE_DIR"
   if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
     . "$ENV_FILE"
   fi
 
@@ -281,6 +282,7 @@ uuid_valid() {
 reset_identity() {
   mkdir -p "$BASE_DIR"
   if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
     . "$ENV_FILE"
   fi
   apply_saved_settings
@@ -842,9 +844,9 @@ change_ports_menu() {
     log "1. 重新随机推荐端口"
     log "2. 手动自定义端口"
     log "0. 返回上层"
-    printf '请选择 [0-2]: '
+    printf '请选择 [0-2] (默认 1): '
     read -r action || exit 1
-    case "$action" in
+    case "${action:-1}" in
       1)
         set_default_ports
         if is_installed; then
@@ -944,9 +946,9 @@ temp_argo_menu() {
     log "1. 重置 Argo 临时隧道域名"
     log "2. 停止 Argo 临时隧道"
     log "0. 返回上层"
-    printf '请选择 [0-2]: '
+    printf '请选择 [0-2] (默认 1): '
     read -r action || exit 1
-    case "$action" in
+    case "${action:-1}" in
       1) set_argo_temp; break ;;
       2) disable_temp_argo; break ;;
       0) break ;;
@@ -963,9 +965,9 @@ fixed_argo_menu() {
     log "1. 添加或更新 Argo 固定隧道"
     log "2. 停止 Argo 固定隧道"
     log "0. 返回上层"
-    printf '请选择 [0-2]: '
+    printf '请选择 [0-2] (默认 1): '
     read -r action || exit 1
-    case "$action" in
+    case "${action:-1}" in
       1) set_argo_fixed; break ;;
       2) disable_fixed_argo; break ;;
       0) break ;;
@@ -986,9 +988,9 @@ argo_menu() {
     log "1. 添加或者删除 Argo 临时隧道"
     log "2. 添加或者删除 Argo 固定隧道"
     log "0. 返回上层"
-    printf '请选择 [0-2]: '
+    printf '请选择 [0-2] (默认 1): '
     read -r action || exit 1
-    case "$action" in
+    case "${action:-1}" in
       1) temp_argo_menu ;;
       2) fixed_argo_menu ;;
       0) break ;;
@@ -1007,6 +1009,8 @@ show_links() {
     log "临时 Argo 提示:"
     log "请用 'sudo litebox logs 80'、'sudo LB logs 80' 或 'sudo lb logs 80' 查看 trycloudflare.com 域名。"
   fi
+  printf '\n按回车返回主菜单...'
+  read -r _ || exit 1
 }
 
 show_logs() {
@@ -1039,12 +1043,6 @@ uninstall_all() {
 }
 
 install_menu() {
-  if is_installed; then
-    printf '\n'
-    log "Litebox 当前已经安装。"
-    log "如果要重新安装，请先选择主菜单里的“8. 彻底卸载 Litebox”，再重新执行安装。"
-    return 0
-  fi
   apply_saved_settings
   CUSTOM_UUID=""
   while :; do
@@ -1053,10 +1051,18 @@ install_menu() {
     log "1. 使用随机推荐端口安装"
     log "2. 自定义端口后安装"
     log "0. 返回主菜单"
-    printf '请选择 [0-2]: '
+    if is_installed; then
+      printf '\n'
+      log "Litebox 当前已经安装。"
+      log "如果要重新安装，请先选择主菜单里的“8. 彻底卸载 Litebox”，再重新执行安装。"
+    fi
+    printf '请选择 [0-2] (默认 1): '
     read -r action || exit 1
-    case "$action" in
+    case "${action:-1}" in
       1)
+        if is_installed; then
+          break
+        fi
         set_default_ports
         choose_uuid_mode
         choose_firewall_action
@@ -1064,6 +1070,9 @@ install_menu() {
         break
         ;;
       2)
+        if is_installed; then
+          break
+        fi
         set_default_ports
         change_ports_menu
         choose_uuid_mode
@@ -1140,7 +1149,7 @@ show_menu() {
       log "默认端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
     fi
     printf '\n'
-    log "1. 安装或重装 Litebox"
+    log "1. 安装 Litebox"
     log "2. Argo 隧道设置"
     log "3. 端口设置"
     log "4. IPv4 / IPv6 出口切换"
@@ -1149,9 +1158,9 @@ show_menu() {
     log "7. 查看运行日志"
     log "8. 彻底卸载 Litebox"
     log "0. 退出脚本"
-    printf '请选择 [0-8]: '
+    printf '请选择 [0-8] (默认 1): '
     read -r action || exit 1
-    case "$action" in
+    case "${action:-1}" in
       1) install_menu ;;
       2) argo_menu ;;
       3) change_ports_menu ;;
