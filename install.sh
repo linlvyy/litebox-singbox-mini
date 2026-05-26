@@ -206,7 +206,9 @@ load_or_create_env() {
 
   LB_SERVER="${LB_SERVER:-$(public_ip)}"
   LB_UUID="${LB_UUID:-$(uuid)}"
-  VMESS_WS_PATH="${VMESS_WS_PATH:-/${LB_UUID}-vm}"
+  case "$VMESS_WS_PATH" in
+    ""|"/vmess") VMESS_WS_PATH="/${LB_UUID}-vm" ;;
+  esac
   LB_PASSWORD="${LB_PASSWORD:-$(rand_b64 18)}"
   LB_ANYTLS_PASSWORD="${LB_ANYTLS_PASSWORD:-$(rand_b64 24)}"
   LB_TUIC_PASSWORD="${LB_TUIC_PASSWORD:-$(rand_b64 18)}"
@@ -270,6 +272,7 @@ install_sing_box() {
 
 install_cloudflared() {
   [ -n "$ARGO_TOKEN" ] || [ "$ENABLE_TEMP_ARGO" = "1" ] || return 0
+  [ -x "$CLOUDFLARED_BIN" ] && return 0
   arch="$(arch_name)"
   tmp="$(mktemp -d)"
   url="$(download_url cloudflare/cloudflared "linux-$arch$")"
@@ -291,9 +294,21 @@ gen_cert() {
 }
 
 write_config() {
-  direct_strategy_line=""
+  dns_block=""
+  direct_resolver_line=""
   if [ "$OUTBOUND_MODE" != "auto" ]; then
-    direct_strategy_line="$(printf ',\n      "domain_strategy": "%s"' "$OUTBOUND_MODE")"
+    dns_block="$(cat <<EOF
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "local"
+      }
+    ]
+  },
+EOF
+)"
+    direct_resolver_line="$(printf ',\n      "domain_resolver": {\n        "server": "local",\n        "strategy": "%s"\n      }' "$OUTBOUND_MODE")"
   fi
   cat >"$CONF" <<EOF
 {
@@ -301,6 +316,7 @@ write_config() {
     "level": "warn",
     "timestamp": false
   },
+$dns_block
   "inbounds": [
     {
       "type": "vless",
@@ -416,7 +432,7 @@ write_config() {
   "outbounds": [
     {
       "type": "direct",
-      "tag": "direct"$direct_strategy_line
+      "tag": "direct"$direct_resolver_line
     },
     {
       "type": "block",
@@ -522,6 +538,29 @@ wait_temp_argo_domain() {
   return 1
 }
 
+current_argo_host() {
+  if [ -n "${ARGO_DOMAIN:-}" ]; then
+    printf '%s\n' "$ARGO_DOMAIN"
+    return
+  fi
+  if [ "${ENABLE_TEMP_ARGO:-0}" = "1" ]; then
+    extract_temp_argo_domain
+  fi
+}
+
+refresh_temp_argo_links() {
+  [ "$ENABLE_TEMP_ARGO" = "1" ] || return 0
+  systemctl restart litebox-argo.service 2>/dev/null || true
+  if host="$(wait_temp_argo_domain 20)"; then
+    write_links
+    log "临时 Argo HOST: $host"
+    return 0
+  fi
+  write_links
+  log "临时 Argo HOST 暂未获取到，请稍后用 'sudo LB logs 120' 查看 cloudflared 日志。"
+  return 1
+}
+
 write_links() {
   server="$LB_SERVER"
   vless="vless://$LB_UUID@$server:$VLESS_PORT?encryption=none&security=reality&sni=$REALITY_SNI&fp=chrome&pbk=$LB_REALITY_PUBLIC&sid=$LB_SHORT_ID&type=tcp&flow=xtls-rprx-vision#$NAME-vless-reality"
@@ -610,6 +649,9 @@ apply_changes() {
   write_services
   write_links
   enable_services
+  if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
+    refresh_temp_argo_links || true
+  fi
 }
 
 set_random_ports() {
@@ -678,14 +720,14 @@ prompt_port() {
   label="$1"
   current="$2"
   while :; do
-    printf '%s [%s]: ' "$label" "$current"
+    printf '%s [%s]: ' "$label" "$current" >&2
     read -r value || exit 1
     [ -z "$value" ] && value="$current"
     if port_valid "$value"; then
       printf '%s\n' "$value"
       return
     fi
-    log "端口无效，请重新输入"
+    log "端口无效，请重新输入" >&2
   done
 }
 
@@ -777,7 +819,8 @@ argo_menu() {
     printf '\n'
     log "Argo 隧道设置"
     log "当前模式: $(argo_mode_text)"
-    [ -n "${LB_ARGO_DOMAIN:-}" ] && log "当前域名: $LB_ARGO_DOMAIN"
+    argo_host="$(current_argo_host)"
+    [ -n "$argo_host" ] && log "当前 HOST: $argo_host"
     log "1. 启用或刷新临时 Argo"
     log "2. 启用或刷新固定 Argo"
     log "3. 关闭 Argo"
@@ -908,6 +951,8 @@ show_menu() {
       log "安装状态: 已安装"
       log "快捷命令: sudo LB / sudo lb"
       log "Argo 状态: $(argo_mode_text)"
+      argo_host="$(current_argo_host)"
+      [ -n "$argo_host" ] && log "Argo HOST: $argo_host"
       log "本机 IPv4: ${current_ipv4:-未检测到}"
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
