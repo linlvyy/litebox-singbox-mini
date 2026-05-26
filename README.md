@@ -73,19 +73,29 @@ sudo litebox uninstall
 
 Argo 子菜单支持：
 
-- 临时隧道
-- 固定隧道
-- 关闭 Argo
+- 添加或者删除 Argo 临时隧道
+- 添加或者删除 Argo 固定隧道
+
+临时 Argo 二级菜单：
+
+- 重置 Argo 临时隧道域名
+- 停止 Argo 临时隧道
+
+固定 Argo 二级菜单：
+
+- 添加或更新 Argo 固定隧道
+- 停止 Argo 固定隧道
 
 安装菜单支持：
 
-- 使用默认端口安装
+- 使用随机推荐端口安装
 - 自定义端口后安装
 
 每次安装或重装时，都会额外让你选择：
 
 - 重新随机生成 UUID
 - 手动输入 UUID
+- 是否开放端口并关闭防火墙
 
 主界面会额外显示：
 
@@ -94,17 +104,15 @@ Argo 子菜单支持：
 - 当前出口模式
 - 当前 Argo HOST（启用 Argo 后）
 
-## 默认端口
+## 端口策略
 
-- `VLESS Reality`: `12666`
-- `AnyTLS`: `22666`
-- `TUIC v5`: `32666`
-- `Hysteria2`: `42666`
-- `WS 本地端口`: `8080`（仅 `127.0.0.1`）
+- 默认是随机推荐端口。
+- `VLESS Reality`、`AnyTLS`、`TUIC v5`、`Hysteria2` 会从高位端口里随机分配，并避开 `80`、`443`、`8443` 这类常用端口。
+- `WS 本地端口` 会从 Cloudflare 常用端口里选择，例如 `8080`、`2052`、`2053`、`2082`、`2083`、`2086`、`2087`、`2095`、`2096`、`8880`。
 
 端口设置支持：
 
-- 恢复默认端口
+- 重新随机推荐端口
 - 手动自定义端口
 
 如果你想在首次安装时通过环境变量指定：
@@ -113,10 +121,10 @@ Argo 子菜单支持：
 SERVER=1.2.3.4 \
 REALITY_SNI=www.microsoft.com \
 TLS_SNI=bing.com \
-ANYTLS_PORT=22666 \
-TUIC_PORT=32666 \
-VLESS_PORT=12666 \
-HY2_PORT=42666 \
+ANYTLS_PORT=24567 \
+TUIC_PORT=33456 \
+VLESS_PORT=15789 \
+HY2_PORT=41888 \
 VMESS_LOCAL_PORT=8080 \
 sudo -E ./install.sh
 ```
@@ -140,10 +148,10 @@ sudo litebox logs
 
 - `add` 使用优选域名 `saas.sin.fan`
 - `host` 自动抓取当前 `trycloudflare.com` 域名
-- `path` 自动使用 `/$UUID-vm?ed=2048`
-- `sni` 跟随临时隧道域名
+- `path` 自动使用 `/$UUID-vm`
+- `sni` 使用 `saas.sin.fan`
 
-启用或刷新临时 Argo 后，脚本会主动等待真实 HOST，并在菜单和节点信息里显示。
+重置临时 Argo 后，脚本会主动等待真实 HOST，并在菜单和节点信息里显示。
 
 ## 生成文件
 
@@ -173,7 +181,7 @@ sudo litebox logs
 - `links.txt` 保存节点信息，权限是 `0600`。
 - AnyTLS、TUIC、Hysteria2 使用自签证书，客户端通常需要开启 `insecure` 或 `allow_insecure`。
 - VLESS Reality 不需要证书，使用 `xtls-rprx-vision`。
-- 如果使用默认端口，记得在防火墙或安全组放行 TCP `12666`、`22666`，UDP `32666`、`42666`。
+- 安装时如果选择自动处理，脚本会尝试开放节点端口并关闭常见防火墙。
 - 对 128 MB 小鸡来说，脚本主体没有问题，额外压力主要来自启用 Argo 后的 `cloudflared` 进程。
 
 ## 参考
