@@ -92,6 +92,7 @@ Argo 子菜单支持：
 - 本机 IPv4
 - 本机 IPv6
 - 当前出口模式
+- 当前 Argo HOST（启用 Argo 后）
 
 ## 默认端口
 
@@ -141,6 +142,8 @@ sudo litebox logs
 - `host` 自动抓取当前 `trycloudflare.com` 域名
 - `path` 自动使用 `/$UUID-vm?ed=2048`
 - `sni` 跟随临时隧道域名
+
+启用或刷新临时 Argo 后，脚本会主动等待真实 HOST，并在菜单和节点信息里显示。
 
 ## 生成文件
 
