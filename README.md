@@ -163,6 +163,14 @@ sudo litebox logs
 
 `TUIC v5` 和 `Hysteria2` 的端口跳跃采用轻量的 UDP 端口重定向方式实现，可以填写多个端口，使用逗号分隔。
 
+## 安全边界
+
+- `VLESS Reality` 默认伪装域名是 `www.microsoft.com`，不使用 Cloudflare 域名。
+- 脚本会拒绝把 `cloudflare.com`、`trycloudflare.com`、`workers.dev`、`pages.dev`、`cloudflare-ech.com`、`saas.sin.fan` 用作 Reality 伪装域名，避免被误配成 Cloudflare/Argo/优选域名。
+- `VMess WS` 只监听 `127.0.0.1`，公网不会直接开放 VMess 端口，只通过 Argo 隧道访问。
+- `TUIC v5`、`Hysteria2` 和端口跳跃端口都是 UDP 转发到对应协议端口，协议本身仍需要 UUID/密码认证。
+- `/etc/litebox/env` 和 `/etc/litebox/links.txt` 默认权限是 `0600`，避免节点密钥被普通用户直接读取。
+
 ## 生成文件
 
 - `/etc/litebox/config.json`
