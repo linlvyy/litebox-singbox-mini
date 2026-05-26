@@ -33,6 +33,7 @@ HY2_PORT="${HY2_PORT:-}"
 VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-}"
 OUTBOUND_MODE="${OUTBOUND_MODE:-}"
 CUSTOM_UUID="${CUSTOM_UUID:-}"
+FIREWALL_ACTION="${FIREWALL_ACTION:-1}"
 
 log() { printf '%s\n' "$*"; }
 die() { log "error: $*" >&2; exit 1; }
@@ -102,6 +103,25 @@ public_ipv6() {
   fi
 }
 
+local_ipv4() {
+  if has ip; then
+    ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1); exit}}'
+    return
+  fi
+  hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+local_ipv6() {
+  if has ip; then
+    ip -6 addr show scope global 2>/dev/null |
+      awk '/inet6/ {print $2}' |
+      cut -d/ -f1 |
+      head -n 1
+    return
+  fi
+  true
+}
+
 download_url() {
   repo="$1"
   pattern="$2"
@@ -151,6 +171,31 @@ random_port_between() {
   printf '%s\n' "$(( (num % range) + min ))"
 }
 
+is_reserved_port() {
+  case "$1" in
+    80|443|8443) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+random_list_port() {
+  set -- "$@"
+  count="$#"
+  [ "$count" -gt 0 ] || return 1
+  idx="$(od -An -N2 -tu2 /dev/urandom | tr -d ' ')"
+  idx="$(( idx % count + 1 ))"
+  eval "printf '%s\n' \"\${$idx}\""
+}
+
+random_service_port() {
+  while :; do
+    port="$(random_port_between 10000 60000)"
+    is_reserved_port "$port" && continue
+    printf '%s\n' "$port"
+    return
+  done
+}
+
 apply_saved_settings() {
   REALITY_SNI="${REALITY_SNI:-${LB_REALITY_SNI:-www.microsoft.com}}"
   TLS_SNI="${TLS_SNI:-${LB_TLS_SNI:-bing.com}}"
@@ -158,11 +203,11 @@ apply_saved_settings() {
   ARGO_DOMAIN="${ARGO_DOMAIN:-${LB_ARGO_DOMAIN:-}}"
   ARGO_TOKEN="${ARGO_TOKEN:-${LB_ARGO_TOKEN:-}}"
   ENABLE_TEMP_ARGO="${ENABLE_TEMP_ARGO:-${LB_ENABLE_TEMP_ARGO:-0}}"
-  ANYTLS_PORT="${ANYTLS_PORT:-${LB_ANYTLS_PORT:-22666}}"
-  TUIC_PORT="${TUIC_PORT:-${LB_TUIC_PORT:-32666}}"
-  VLESS_PORT="${VLESS_PORT:-${LB_VLESS_PORT:-12666}}"
-  HY2_PORT="${HY2_PORT:-${LB_HY2_PORT:-42666}}"
-  VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-${LB_VMESS_LOCAL_PORT:-8080}}"
+  ANYTLS_PORT="${ANYTLS_PORT:-${LB_ANYTLS_PORT:-}}"
+  TUIC_PORT="${TUIC_PORT:-${LB_TUIC_PORT:-}}"
+  VLESS_PORT="${VLESS_PORT:-${LB_VLESS_PORT:-}}"
+  HY2_PORT="${HY2_PORT:-${LB_HY2_PORT:-}}"
+  VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-${LB_VMESS_LOCAL_PORT:-}}"
   OUTBOUND_MODE="${OUTBOUND_MODE:-${LB_OUTBOUND_MODE:-auto}}"
 }
 
@@ -198,7 +243,6 @@ EOF
 load_or_create_env() {
   mkdir -p "$BASE_DIR"
   if [ -f "$ENV_FILE" ]; then
-    # shellcheck disable=SC1090
     . "$ENV_FILE"
   fi
 
@@ -206,6 +250,9 @@ load_or_create_env() {
 
   LB_SERVER="${LB_SERVER:-$(public_ip)}"
   LB_UUID="${LB_UUID:-$(uuid)}"
+  if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
+    set_default_ports
+  fi
   case "$VMESS_WS_PATH" in
     ""|"/vmess") VMESS_WS_PATH="/${LB_UUID}-vm" ;;
   esac
@@ -234,7 +281,6 @@ uuid_valid() {
 reset_identity() {
   mkdir -p "$BASE_DIR"
   if [ -f "$ENV_FILE" ]; then
-    # shellcheck disable=SC1090
     . "$ENV_FILE"
   fi
   apply_saved_settings
@@ -423,9 +469,7 @@ $dns_block
       ],
       "transport": {
         "type": "ws",
-        "path": "$VMESS_WS_PATH",
-        "max_early_data": 2048,
-        "early_data_header_name": "Sec-WebSocket-Protocol"
+        "path": "$VMESS_WS_PATH"
       }
     }
   ],
@@ -576,13 +620,13 @@ write_links() {
     temp_argo_domain="$(extract_temp_argo_domain)"
     vmess_add="saas.sin.fan"
     vmess_host="${temp_argo_domain:-<your-trycloudflare-domain>}"
-    vmess_sni="$vmess_host"
+    vmess_sni="$vmess_add"
   else
     vmess_add="<argo-not-enabled>"
     vmess_host="<argo-not-enabled>"
     vmess_sni="$vmess_host"
   fi
-  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s?ed=2048","tls":"tls","sni":"%s"}' "$NAME" "$vmess_add" "$LB_UUID" "$vmess_host" "$VMESS_WS_PATH" "$vmess_sni" | b64_nowrap)"
+  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s"}' "$NAME" "$vmess_add" "$LB_UUID" "$vmess_host" "$VMESS_WS_PATH" "$vmess_sni" | b64_nowrap)"
 
   cat >"$LINKS_FILE" <<EOF
 VLESS-REALITY:
@@ -655,28 +699,72 @@ apply_changes() {
 }
 
 set_random_ports() {
-  VLESS_PORT="$(random_port_between 10000 40000)"
-  ANYTLS_PORT="$(random_port_between 10000 50000)"
+  VLESS_PORT="$(random_service_port)"
+  ANYTLS_PORT="$(random_service_port)"
   while [ "$ANYTLS_PORT" = "$VLESS_PORT" ]; do
-    ANYTLS_PORT="$(random_port_between 10000 50000)"
+    ANYTLS_PORT="$(random_service_port)"
   done
-  TUIC_PORT="$(random_port_between 10000 50000)"
+  TUIC_PORT="$(random_service_port)"
   while [ "$TUIC_PORT" = "$VLESS_PORT" ] || [ "$TUIC_PORT" = "$ANYTLS_PORT" ]; do
-    TUIC_PORT="$(random_port_between 10000 50000)"
+    TUIC_PORT="$(random_service_port)"
   done
-  HY2_PORT="$(random_port_between 10000 50000)"
+  HY2_PORT="$(random_service_port)"
   while [ "$HY2_PORT" = "$VLESS_PORT" ] || [ "$HY2_PORT" = "$ANYTLS_PORT" ] || [ "$HY2_PORT" = "$TUIC_PORT" ]; do
-    HY2_PORT="$(random_port_between 10000 50000)"
+    HY2_PORT="$(random_service_port)"
   done
-  VMESS_LOCAL_PORT="$(random_port_between 18080 28080)"
+  VMESS_LOCAL_PORT="$(random_list_port 8080 2052 2053 2082 2083 2086 2087 2095 2096 8880)"
 }
 
 set_default_ports() {
-  VLESS_PORT=12666
-  ANYTLS_PORT=22666
-  TUIC_PORT=32666
-  HY2_PORT=42666
-  VMESS_LOCAL_PORT=8080
+  set_random_ports
+}
+
+open_service_ports() {
+  tcp_ports="$VLESS_PORT,$ANYTLS_PORT"
+  udp_ports="$TUIC_PORT,$HY2_PORT"
+
+  if has ufw; then
+    ufw --force disable >/dev/null 2>&1 || true
+  fi
+  if has systemctl && systemctl list-unit-files 2>/dev/null | grep -q '^firewalld\.service'; then
+    systemctl disable --now firewalld >/dev/null 2>&1 || true
+  fi
+  if has iptables; then
+    iptables -C INPUT -p tcp -m multiport --dports "$tcp_ports" -j ACCEPT >/dev/null 2>&1 ||
+      iptables -I INPUT -p tcp -m multiport --dports "$tcp_ports" -j ACCEPT >/dev/null 2>&1 || true
+    iptables -C INPUT -p udp -m multiport --dports "$udp_ports" -j ACCEPT >/dev/null 2>&1 ||
+      iptables -I INPUT -p udp -m multiport --dports "$udp_ports" -j ACCEPT >/dev/null 2>&1 || true
+  fi
+  if has ip6tables; then
+    ip6tables -C INPUT -p tcp -m multiport --dports "$tcp_ports" -j ACCEPT >/dev/null 2>&1 ||
+      ip6tables -I INPUT -p tcp -m multiport --dports "$tcp_ports" -j ACCEPT >/dev/null 2>&1 || true
+    ip6tables -C INPUT -p udp -m multiport --dports "$udp_ports" -j ACCEPT >/dev/null 2>&1 ||
+      ip6tables -I INPUT -p udp -m multiport --dports "$udp_ports" -j ACCEPT >/dev/null 2>&1 || true
+  fi
+}
+
+choose_firewall_action() {
+  while :; do
+    printf '\n'
+    log "是否开放端口，关闭防火墙？"
+    log "1、是，执行 (回车默认)"
+    log "2、否，跳过！自行处理"
+    printf '请选择【1-2】：'
+    read -r firewall_choice || exit 1
+    case "${firewall_choice:-1}" in
+      1)
+        FIREWALL_ACTION=1
+        return 0
+        ;;
+      2)
+        FIREWALL_ACTION=2
+        return 0
+        ;;
+      *)
+        log "无效选择"
+        ;;
+    esac
+  done
 }
 
 switch_outbound_menu() {
@@ -740,7 +828,7 @@ change_ports_menu() {
   while :; do
     printf '\n'
     log "端口设置"
-    log "1. 使用推荐默认端口"
+    log "1. 重新随机推荐端口"
     log "2. 手动自定义端口"
     log "0. 返回上层"
     printf '请选择 [0-2]: '
@@ -751,7 +839,7 @@ change_ports_menu() {
         if is_installed; then
           apply_changes
         fi
-        log "已切换为默认端口"
+        log "已切换为随机推荐端口"
         break
         ;;
       2)
@@ -773,9 +861,9 @@ change_ports_menu() {
 }
 
 argo_mode_text() {
-  if [ -n "${LB_ARGO_TOKEN:-}" ]; then
+  if [ -n "${ARGO_TOKEN:-${LB_ARGO_TOKEN:-}}" ]; then
     printf '固定隧道'
-  elif [ "${LB_ENABLE_TEMP_ARGO:-0}" = "1" ]; then
+  elif [ "${ENABLE_TEMP_ARGO:-${LB_ENABLE_TEMP_ARGO:-0}}" = "1" ]; then
     printf '临时隧道'
   else
     printf '已关闭'
@@ -812,6 +900,69 @@ disable_argo() {
   log "已关闭 Argo。"
 }
 
+disable_temp_argo() {
+  [ "$ENABLE_TEMP_ARGO" = "1" ] || {
+    log "当前没有启用 Argo 临时隧道。"
+    return 0
+  }
+  ARGO_TOKEN=""
+  ARGO_DOMAIN=""
+  ENABLE_TEMP_ARGO=0
+  apply_changes
+  log "已停止 Argo 临时隧道。"
+}
+
+disable_fixed_argo() {
+  [ -n "$ARGO_TOKEN" ] || {
+    log "当前没有启用 Argo 固定隧道。"
+    return 0
+  }
+  ARGO_TOKEN=""
+  ARGO_DOMAIN=""
+  ENABLE_TEMP_ARGO=0
+  apply_changes
+  log "已停止 Argo 固定隧道。"
+}
+
+temp_argo_menu() {
+  while :; do
+    printf '\n'
+    log "Argo 临时隧道"
+    argo_host="$(current_argo_host)"
+    [ -n "$argo_host" ] && log "当前 HOST: $argo_host"
+    log "1. 重置 Argo 临时隧道域名"
+    log "2. 停止 Argo 临时隧道"
+    log "0. 返回上层"
+    printf '请选择 [0-2]: '
+    read -r action || exit 1
+    case "$action" in
+      1) set_argo_temp; break ;;
+      2) disable_temp_argo; break ;;
+      0) break ;;
+      *) log "无效选择" ;;
+    esac
+  done
+}
+
+fixed_argo_menu() {
+  while :; do
+    printf '\n'
+    log "Argo 固定隧道"
+    [ -n "$ARGO_DOMAIN" ] && log "当前固定域名: $ARGO_DOMAIN"
+    log "1. 添加或更新 Argo 固定隧道"
+    log "2. 停止 Argo 固定隧道"
+    log "0. 返回上层"
+    printf '请选择 [0-2]: '
+    read -r action || exit 1
+    case "$action" in
+      1) set_argo_fixed; break ;;
+      2) disable_fixed_argo; break ;;
+      0) break ;;
+      *) log "无效选择" ;;
+    esac
+  done
+}
+
 argo_menu() {
   require_installed
   load_or_create_env
@@ -821,16 +972,14 @@ argo_menu() {
     log "当前模式: $(argo_mode_text)"
     argo_host="$(current_argo_host)"
     [ -n "$argo_host" ] && log "当前 HOST: $argo_host"
-    log "1. 启用或刷新临时 Argo"
-    log "2. 启用或刷新固定 Argo"
-    log "3. 关闭 Argo"
+    log "1. 添加或者删除 Argo 临时隧道"
+    log "2. 添加或者删除 Argo 固定隧道"
     log "0. 返回上层"
-    printf '请选择 [0-3]: '
+    printf '请选择 [0-2]: '
     read -r action || exit 1
     case "$action" in
-      1) set_argo_temp; break ;;
-      2) set_argo_fixed; break ;;
-      3) disable_argo; break ;;
+      1) temp_argo_menu ;;
+      2) fixed_argo_menu ;;
       0) break ;;
       *) log "无效选择" ;;
     esac
@@ -884,7 +1033,7 @@ install_menu() {
   while :; do
     printf '\n'
     log "安装设置"
-    log "1. 使用默认端口安装"
+    log "1. 使用随机推荐端口安装"
     log "2. 自定义端口后安装"
     log "0. 返回主菜单"
     printf '请选择 [0-2]: '
@@ -893,6 +1042,7 @@ install_menu() {
       1)
         set_default_ports
         choose_uuid_mode
+        choose_firewall_action
         install_all
         break
         ;;
@@ -900,6 +1050,7 @@ install_menu() {
         set_default_ports
         change_ports_menu
         choose_uuid_mode
+        choose_firewall_action
         install_all
         break
         ;;
@@ -944,8 +1095,8 @@ show_menu() {
   while :; do
     printf '\n'
     log "Litebox 快捷菜单"
-    current_ipv4="$(public_ip || true)"
-    current_ipv6="$(public_ipv6 || true)"
+    current_ipv4="$(local_ipv4 || true)"
+    current_ipv6="$(local_ipv6 || true)"
     if is_installed; then
       load_or_create_env
       log "安装状态: 已安装"
@@ -959,6 +1110,9 @@ show_menu() {
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
     else
       apply_saved_settings
+      if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
+        set_default_ports
+      fi
       log "安装状态: 未安装"
       log "安装后快捷命令: sudo LB / sudo lb"
       log "本机 IPv4: ${current_ipv4:-未检测到}"
@@ -1008,10 +1162,12 @@ install_all() {
   write_services
   write_cli
   write_links
+  if [ "${FIREWALL_ACTION:-1}" = "1" ]; then
+    open_service_ports
+  fi
   enable_services
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
-    wait_temp_argo_domain 15 >/dev/null 2>&1 || true
-    write_links
+    refresh_temp_argo_links || true
   fi
   log "安装完成，节点信息文件: $LINKS_FILE"
   cat "$LINKS_FILE"
