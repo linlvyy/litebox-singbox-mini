@@ -28,6 +28,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/linlvyy/litebox-singbox-mini
 
 执行后会先进入菜单，再选择安装方式，不会直接开装。
 
+Alpine 安装行为：
+
+- 优先执行 `apk add --no-cache sing-box`
+- 如果当前 `apk` 仓库没有 `sing-box`，再回退到 sing-box 官方发布包
+- Alpine 回退下载时只选 `musl` / 通用 Linux 包，不会选 `glibc` 包
+- 检测到 `OpenRC` 时，会生成 `litebox` / `litebox-argo` 的 OpenRC 服务并自动开机自启
+
 本地执行：
 
 ```bash
@@ -170,14 +177,15 @@ sudo litebox logs
 - `VMess WS` 只监听 `127.0.0.1`，公网不会直接开放 VMess 端口，只通过 Argo 隧道访问。
 - `TUIC v5`、`Hysteria2` 和端口跳跃端口都是 UDP 转发到对应协议端口，协议本身仍需要 UUID/密码认证。
 - `/etc/litebox/env` 和 `/etc/litebox/links.txt` 默认权限是 `0600`，避免节点密钥被普通用户直接读取。
+- Alpine / OpenRC 安装后也会创建 `litebox`、`LB`、`lb` 三个快捷命令。
 
 ## 生成文件
 
 - `/etc/litebox/config.json`
 - `/etc/litebox/env`
 - `/etc/litebox/links.txt`
-- `/etc/systemd/system/litebox.service`
-- `/etc/systemd/system/litebox-argo.service`
+- `/etc/systemd/system/litebox.service` 或 `/etc/init.d/litebox`
+- `/etc/systemd/system/litebox-argo.service` 或 `/etc/init.d/litebox-argo`
 - `/usr/local/bin/litebox`
 - `/usr/local/bin/LB`
 - `/usr/local/bin/lb`
@@ -200,7 +208,7 @@ sudo litebox logs
 - AnyTLS、TUIC、Hysteria2 使用自签证书，客户端通常需要开启 `insecure` 或 `allow_insecure`。
 - VLESS Reality 不需要证书，使用 `xtls-rprx-vision`。
 - 安装时如果选择自动处理，脚本会尝试开放节点端口并关闭常见防火墙。
-- Alpine 使用 `OpenRC`，Debian / Ubuntu 通常使用 `systemd`，脚本会自动识别并生成对应服务。
+- Alpine 使用 `OpenRC`，脚本会优先尝试 `apk add sing-box`；Debian / Ubuntu 通常使用 `systemd`，脚本会自动识别并生成对应服务。
 - 对 128 MB 小鸡来说，脚本主体没有问题，额外压力主要来自启用 Argo 后的 `cloudflared` 进程。
 
 ## 参考

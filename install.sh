@@ -23,6 +23,8 @@ ARGO_LOG="$BASE_DIR/argo.log"
 LITEBOX_PID="/run/litebox.pid"
 ARGO_PID="/run/litebox-argo.pid"
 INIT_SYSTEM=""
+OS_ID=""
+OS_LIKE=""
 
 SING_BOX_VERSION="${SING_BOX_VERSION:-latest}"
 SERVER="${SERVER:-}"
@@ -48,6 +50,24 @@ log() { printf '%s\n' "$*"; }
 die() { log "error: $*" >&2; exit 1; }
 need_root() { [ "$(id -u)" = "0" ] || die "please run as root"; }
 has() { command -v "$1" >/dev/null 2>&1; }
+
+detect_os() {
+  if [ -n "$OS_ID" ]; then
+    return 0
+  fi
+  if [ -r /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    OS_ID="${ID:-}"
+    OS_LIKE="${ID_LIKE:-}"
+  fi
+}
+
+is_alpine() {
+  detect_os
+  [ "$OS_ID" = "alpine" ] && return 0
+  printf '%s\n' "$OS_LIKE" | grep -Eq '(^| )alpine( |$)'
+}
 
 detect_init_system() {
   if [ -n "$INIT_SYSTEM" ]; then
@@ -252,6 +272,22 @@ download_url() {
     grep "$pattern" | head -n 1
 }
 
+release_asset_urls() {
+  repo="$1"
+  version="$2"
+  if [ "$version" = "latest" ]; then
+    api_url="https://api.github.com/repos/$repo/releases/latest"
+  else
+    case "$version" in
+      v*) tag="$version" ;;
+      *) tag="v$version" ;;
+    esac
+    api_url="https://api.github.com/repos/$repo/releases/tags/$tag"
+  fi
+  curl -fsSL "$api_url" |
+    sed -n 's/.*"browser_download_url": "\(.*\)".*/\1/p'
+}
+
 arch_name() {
   case "$(uname -m)" in
     x86_64|amd64) printf amd64 ;;
@@ -449,11 +485,30 @@ reset_identity() {
 
 install_sing_box() {
   arch="$(arch_name)"
+  if is_alpine && has apk; then
+    log "detected Alpine Linux, trying apk add sing-box first"
+    if apk add --no-cache sing-box >/dev/null 2>&1; then
+      found="$(command -v sing-box || true)"
+      [ -n "$found" ] || die "apk installed sing-box but binary was not found in PATH"
+      if [ "$found" != "$BIN" ]; then
+        ln -sf "$found" "$BIN"
+      fi
+      return 0
+    fi
+    log "apk add sing-box unavailable, falling back to upstream tarball"
+  fi
   tmp="$(mktemp -d)"
-  if [ "$SING_BOX_VERSION" = "latest" ]; then
-    url="$(download_url SagerNet/sing-box "linux-$arch.*\.tar\.gz")"
+  urls="$(release_asset_urls SagerNet/sing-box "$SING_BOX_VERSION")"
+  exact_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}\.tar\.gz$" | head -n 1)"
+  musl_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-musl\.tar\.gz$" | head -n 1)"
+  anylinux_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-anylinux\.tar\.gz$" | head -n 1)"
+  other_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}[^/]*\.tar\.gz$" | grep -Ev '(-glibc|-gnu)\.tar\.gz$' | head -n 1)"
+  glibc_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-(glibc|gnu)\.tar\.gz$" | head -n 1)"
+
+  if is_alpine; then
+    url="${exact_url:-${musl_url:-${anylinux_url:-$other_url}}}"
   else
-    url="https://github.com/SagerNet/sing-box/releases/download/${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION#v}-linux-${arch}.tar.gz"
+    url="${exact_url:-${other_url:-${glibc_url:-${musl_url:-$anylinux_url}}}}"
   fi
   [ -n "$url" ] || die "cannot find sing-box release for $arch"
   log "download sing-box: $url"
@@ -671,9 +726,13 @@ EOF
     cat >"$SERVICE" <<EOF
 #!/sbin/openrc-run
 description="Litebox sing-box nodes"
-command="$RUN_LITEBOX"
-command_background=true
+supervisor="supervise-daemon"
+command="$BIN"
+command_args="run -c $CONF"
 pidfile="$LITEBOX_PID"
+output_log="$MAIN_LOG"
+error_log="$MAIN_LOG"
+respawn_delay=5
 
 depend() {
   need net
@@ -717,9 +776,12 @@ EOF
       cat >"$ARGO_SERVICE" <<EOF
 #!/sbin/openrc-run
 description="Litebox Cloudflare Argo tunnel"
+supervisor="supervise-daemon"
 command="$RUN_ARGO"
-command_background=true
 pidfile="$ARGO_PID"
+output_log="$ARGO_LOG"
+error_log="$ARGO_LOG"
+respawn_delay=5
 
 depend() {
   need net litebox
