@@ -198,6 +198,24 @@ random_service_port() {
   done
 }
 
+is_forbidden_reality_sni() {
+  domain="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$domain" in
+    cloudflare.com|*.cloudflare.com|trycloudflare.com|*.trycloudflare.com|workers.dev|*.workers.dev|pages.dev|*.pages.dev|cloudflare-ech.com|*.cloudflare-ech.com|saas.sin.fan)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_security_settings() {
+  if is_forbidden_reality_sni "$REALITY_SNI"; then
+    die "Reality 伪装域名不能使用 Cloudflare/Argo/优选域名: $REALITY_SNI"
+  fi
+}
+
 apply_saved_settings() {
   REALITY_SNI="${REALITY_SNI:-${LB_REALITY_SNI:-www.microsoft.com}}"
   TLS_SNI="${TLS_SNI:-${LB_TLS_SNI:-bing.com}}"
@@ -278,6 +296,7 @@ load_or_create_env() {
     LB_REALITY_PUBLIC="$(printf '%s\n' "$pair" | awk '/PublicKey:/ {print $2}')"
   fi
 
+  validate_security_settings
   save_env
 }
 
