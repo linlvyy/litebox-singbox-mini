@@ -557,14 +557,21 @@ write_cli() {
 }
 
 extract_temp_argo_domain() {
+  extract_best_domain_stream() {
+    grep -Eo '[A-Za-z0-9-]+\.trycloudflare\.com' |
+      awk '$0 != "s.trycloudflare.com" {print length($0), $0}' |
+      sort -n |
+      tail -n 1 |
+      awk '{print $2}'
+  }
   if [ -f "$BASE_DIR/argo.log" ]; then
-    sed -nE 's#.*(https://)?([a-zA-Z0-9-]+\.trycloudflare\.com).*#\2#p' "$BASE_DIR/argo.log" |
-      tail -n 1
-    return
+    domain="$(extract_best_domain_stream <"$BASE_DIR/argo.log" || true)"
+    [ -n "$domain" ] && {
+      printf '%s\n' "$domain"
+      return
+    }
   fi
-  journalctl -u litebox-argo.service -n 120 --no-pager 2>/dev/null |
-    sed -nE 's#.*(https://)?([a-zA-Z0-9-]+\.trycloudflare\.com).*#\2#p' |
-    tail -n 1
+  journalctl -u litebox-argo.service -n 120 --no-pager 2>/dev/null | extract_best_domain_stream
 }
 
 wait_temp_argo_domain() {
@@ -614,19 +621,23 @@ write_links() {
 
   if [ -n "$ARGO_DOMAIN" ]; then
     vmess_add="$ARGO_DOMAIN"
+    vmess_port="443"
     vmess_host="$ARGO_DOMAIN"
     vmess_sni="$ARGO_DOMAIN"
   elif [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     temp_argo_domain="$(extract_temp_argo_domain)"
-    vmess_add="saas.sin.fan"
+    vmess_add="cloudflare-ech.com"
+    vmess_port="8443"
     vmess_host="${temp_argo_domain:-<your-trycloudflare-domain>}"
-    vmess_sni="$vmess_add"
+    vmess_sni="$vmess_host"
   else
     vmess_add="<argo-not-enabled>"
+    vmess_port="443"
     vmess_host="<argo-not-enabled>"
     vmess_sni="$vmess_host"
   fi
-  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s"}' "$NAME" "$vmess_add" "$LB_UUID" "$vmess_host" "$VMESS_WS_PATH" "$vmess_sni" | b64_nowrap)"
+  vmess_path="${VMESS_WS_PATH#/}"
+  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"%s","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s","fp":"chrome"}' "$NAME" "$vmess_add" "$vmess_port" "$LB_UUID" "$vmess_host" "$vmess_path" "$vmess_sni" | b64_nowrap)"
 
   cat >"$LINKS_FILE" <<EOF
 VLESS-REALITY:
@@ -1099,6 +1110,7 @@ show_menu() {
     current_ipv6="$(local_ipv6 || true)"
     if is_installed; then
       load_or_create_env
+      current_ipv4="${LB_SERVER:-$current_ipv4}"
       log "安装状态: 已安装"
       log "快捷命令: sudo LB / sudo lb"
       log "Argo 状态: $(argo_mode_text)"
@@ -1113,6 +1125,7 @@ show_menu() {
       if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
         set_default_ports
       fi
+      current_ipv4="$(public_ip || printf '%s' "$current_ipv4")"
       log "安装状态: 未安装"
       log "安装后快捷命令: sudo LB / sudo lb"
       log "本机 IPv4: ${current_ipv4:-未检测到}"
