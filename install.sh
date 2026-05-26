@@ -34,6 +34,8 @@ VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-}"
 OUTBOUND_MODE="${OUTBOUND_MODE:-}"
 CUSTOM_UUID="${CUSTOM_UUID:-}"
 FIREWALL_ACTION="${FIREWALL_ACTION:-1}"
+TUIC_HOP_PORTS="${TUIC_HOP_PORTS:-}"
+HY2_HOP_PORTS="${HY2_HOP_PORTS:-}"
 
 log() { printf '%s\n' "$*"; }
 die() { log "error: $*" >&2; exit 1; }
@@ -209,6 +211,8 @@ apply_saved_settings() {
   HY2_PORT="${HY2_PORT:-${LB_HY2_PORT:-}}"
   VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-${LB_VMESS_LOCAL_PORT:-}}"
   OUTBOUND_MODE="${OUTBOUND_MODE:-${LB_OUTBOUND_MODE:-auto}}"
+  TUIC_HOP_PORTS="${TUIC_HOP_PORTS:-${LB_TUIC_HOP_PORTS:-}}"
+  HY2_HOP_PORTS="${HY2_HOP_PORTS:-${LB_HY2_HOP_PORTS:-}}"
 }
 
 save_env() {
@@ -236,6 +240,8 @@ LB_VLESS_PORT='$VLESS_PORT'
 LB_HY2_PORT='$HY2_PORT'
 LB_VMESS_LOCAL_PORT='$VMESS_LOCAL_PORT'
 LB_OUTBOUND_MODE='$OUTBOUND_MODE'
+LB_TUIC_HOP_PORTS='$TUIC_HOP_PORTS'
+LB_HY2_HOP_PORTS='$HY2_HOP_PORTS'
 EOF
   chmod 600 "$ENV_FILE"
 }
@@ -304,7 +310,7 @@ install_sing_box() {
   arch="$(arch_name)"
   tmp="$(mktemp -d)"
   if [ "$SING_BOX_VERSION" = "latest" ]; then
-    url="$(download_url SagerNet/sing-box "linux-$arch.*\.tar\.gz")"
+    url="$(download_url SagerNet/sing-box "linux-$arch.*\\.tar\\.gz")"
   else
     url="https://github.com/SagerNet/sing-box/releases/download/${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION#v}-linux-${arch}.tar.gz"
   fi
@@ -346,147 +352,147 @@ write_config() {
   direct_resolver_line=""
   if [ "$OUTBOUND_MODE" != "auto" ]; then
     dns_block="$(cat <<EOF
-  "dns": {
-    "servers": [
+  \"dns\": {
+    \"servers\": [
       {
-        "type": "local",
-        "tag": "local"
+        \"type\": \"local\",
+        \"tag\": \"local\"
       }
     ]
   },
 EOF
 )"
-    direct_resolver_line="$(printf ',\n      "domain_resolver": {\n        "server": "local",\n        "strategy": "%s"\n      }' "$OUTBOUND_MODE")"
+    direct_resolver_line="$(printf ',\n      \"domain_resolver\": {\n        \"server\": \"local\",\n        \"strategy\": \"%s\"\n      }' "$OUTBOUND_MODE")"
   fi
   cat >"$CONF" <<EOF
 {
-  "log": {
-    "level": "warn",
-    "timestamp": false
+  \"log\": {
+    \"level\": \"warn\",
+    \"timestamp\": false
   },
 $dns_block
-  "inbounds": [
+  \"inbounds\": [
     {
-      "type": "vless",
-      "tag": "vless-reality",
-      "listen": "::",
-      "listen_port": $VLESS_PORT,
-      "users": [
+      \"type\": \"vless\",
+      \"tag\": \"vless-reality\",
+      \"listen\": \"::\",
+      \"listen_port\": $VLESS_PORT,
+      \"users\": [
         {
-          "name": "$NAME",
-          "uuid": "$LB_UUID",
-          "flow": "xtls-rprx-vision"
+          \"name\": \"$NAME\",
+          \"uuid\": \"$LB_UUID\",
+          \"flow\": \"xtls-rprx-vision\"
         }
       ],
-      "tls": {
-        "enabled": true,
-        "server_name": "$REALITY_SNI",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "$REALITY_SNI",
-            "server_port": 443
+      \"tls\": {
+        \"enabled\": true,
+        \"server_name\": \"$REALITY_SNI\",
+        \"reality\": {
+          \"enabled\": true,
+          \"handshake\": {
+            \"server\": \"$REALITY_SNI\",
+            \"server_port\": 443
           },
-          "private_key": "$LB_REALITY_PRIVATE",
-          "short_id": ["$LB_SHORT_ID"]
+          \"private_key\": \"$LB_REALITY_PRIVATE\",
+          \"short_id\": [\"$LB_SHORT_ID\"]
         }
       }
     },
     {
-      "type": "anytls",
-      "tag": "anytls",
-      "listen": "::",
-      "listen_port": $ANYTLS_PORT,
-      "users": [
+      \"type\": \"anytls\",
+      \"tag\": \"anytls\",
+      \"listen\": \"::\",
+      \"listen_port\": $ANYTLS_PORT,
+      \"users\": [
         {
-          "name": "$NAME",
-          "password": "$LB_ANYTLS_PASSWORD"
+          \"name\": \"$NAME\",
+          \"password\": \"$LB_ANYTLS_PASSWORD\"
         }
       ],
-      "tls": {
-        "enabled": true,
-        "server_name": "$TLS_SNI",
-        "certificate_path": "$CERT_DIR/cert.pem",
-        "key_path": "$CERT_DIR/key.pem"
+      \"tls\": {
+        \"enabled\": true,
+        \"server_name\": \"$TLS_SNI\",
+        \"certificate_path\": "$CERT_DIR/cert.pem",
+        \"key_path\": "$CERT_DIR/key.pem"
       }
     },
     {
-      "type": "tuic",
-      "tag": "tuic-v5",
-      "listen": "::",
-      "listen_port": $TUIC_PORT,
-      "users": [
+      \"type\": \"tuic\",
+      \"tag\": \"tuic-v5\",
+      \"listen\": \"::\",
+      \"listen_port\": $TUIC_PORT,
+      \"users\": [
         {
-          "name": "$NAME",
-          "uuid": "$LB_UUID",
-          "password": "$LB_TUIC_PASSWORD"
+          \"name\": \"$NAME\",
+          \"uuid\": \"$LB_UUID\",
+          \"password\": \"$LB_TUIC_PASSWORD\"
         }
       ],
-      "congestion_control": "bbr",
-      "zero_rtt_handshake": false,
-      "heartbeat": "10s",
-      "tls": {
-        "enabled": true,
-        "server_name": "$TLS_SNI",
-        "alpn": ["h3"],
-        "certificate_path": "$CERT_DIR/cert.pem",
-        "key_path": "$CERT_DIR/key.pem"
+      \"congestion_control\": \"bbr\",
+      \"zero_rtt_handshake\": false,
+      \"heartbeat\": \"10s\",
+      \"tls\": {
+        \"enabled\": true,
+        \"server_name\": \"$TLS_SNI\",
+        \"alpn\": [\"h3\"],
+        \"certificate_path\": "$CERT_DIR/cert.pem",
+        \"key_path\": "$CERT_DIR/key.pem"
       }
     },
     {
-      "type": "hysteria2",
-      "tag": "hysteria2",
-      "listen": "::",
-      "listen_port": $HY2_PORT,
-      "obfs": {
-        "type": "salamander",
-        "password": "$LB_HY2_OBFS"
+      \"type\": \"hysteria2\",
+      \"tag\": \"hysteria2\",
+      \"listen\": \"::\",
+      \"listen_port\": $HY2_PORT,
+      \"obfs\": {
+        \"type\": \"salamander\",
+        \"password\": \"$LB_HY2_OBFS\"
       },
-      "users": [
+      \"users\": [
         {
-          "name": "$NAME",
-          "password": "$LB_HY2_PASSWORD"
+          \"name\": \"$NAME\",
+          \"password\": \"$LB_HY2_PASSWORD\"
         }
       ],
-      "ignore_client_bandwidth": true,
-      "tls": {
-        "enabled": true,
-        "server_name": "$TLS_SNI",
-        "alpn": ["h3"],
-        "certificate_path": "$CERT_DIR/cert.pem",
-        "key_path": "$CERT_DIR/key.pem"
+      \"ignore_client_bandwidth\": true,
+      \"tls\": {
+        \"enabled\": true,
+        \"server_name\": \"$TLS_SNI\",
+        \"alpn\": [\"h3\"],
+        \"certificate_path\": "$CERT_DIR/cert.pem",
+        \"key_path\": "$CERT_DIR/key.pem"
       }
     },
     {
-      "type": "vmess",
-      "tag": "vmess-ws-argo",
-      "listen": "127.0.0.1",
-      "listen_port": $VMESS_LOCAL_PORT,
-      "users": [
+      \"type\": \"vmess\",
+      \"tag\": \"vmess-ws-argo\",
+      \"listen\": \"127.0.0.1\",
+      \"listen_port\": $VMESS_LOCAL_PORT,
+      \"users\": [
         {
-          "name": "$NAME",
-          "uuid": "$LB_UUID",
-          "alterId": 0
+          \"name\": \"$NAME\",
+          \"uuid\": \"$LB_UUID\",
+          \"alterId\": 0
         }
       ],
-      "transport": {
-        "type": "ws",
-        "path": "$VMESS_WS_PATH"
+      \"transport\": {
+        \"type\": \"ws\",
+        \"path\": \"$VMESS_WS_PATH\"
       }
     }
   ],
-  "outbounds": [
+  \"outbounds\": [
     {
-      "type": "direct",
-      "tag": "direct"$direct_resolver_line
+      \"type\": \"direct\",
+      \"tag\": \"direct\"$direct_resolver_line
     },
     {
-      "type": "block",
-      "tag": "block"
+      \"type\": \"block\",
+      \"tag\": \"block\"
     }
   ],
-  "route": {
-    "final": "direct"
+  \"route\": {
+    \"final\": \"direct\"
   }
 }
 EOF
@@ -706,6 +712,7 @@ apply_changes() {
   write_services
   write_links
   enable_services
+  apply_port_hops
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     refresh_temp_argo_links || true
   fi
@@ -735,6 +742,8 @@ set_default_ports() {
 open_service_ports() {
   tcp_ports="$VLESS_PORT,$ANYTLS_PORT"
   udp_ports="$TUIC_PORT,$HY2_PORT"
+  [ -n "$TUIC_HOP_PORTS" ] && udp_ports="$udp_ports,$TUIC_HOP_PORTS"
+  [ -n "$HY2_HOP_PORTS" ] && udp_ports="$udp_ports,$HY2_HOP_PORTS"
 
   if has ufw; then
     ufw --force disable >/dev/null 2>&1 || true
@@ -754,6 +763,107 @@ open_service_ports() {
     ip6tables -C INPUT -p udp -m multiport --dports "$udp_ports" -j ACCEPT >/dev/null 2>&1 ||
       ip6tables -I INPUT -p udp -m multiport --dports "$udp_ports" -j ACCEPT >/dev/null 2>&1 || true
   fi
+}
+
+clear_port_hops() {
+  if has iptables; then
+    oldifs="$IFS"
+    IFS=','
+    for port in $TUIC_HOP_PORTS; do
+      [ -n "$port" ] || continue
+      while iptables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1; do
+        iptables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || break
+      done
+    done
+    for port in $HY2_HOP_PORTS; do
+      [ -n "$port" ] || continue
+      while iptables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1; do
+        iptables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || break
+      done
+    done
+    IFS="$oldifs"
+  fi
+  if has ip6tables; then
+    oldifs="$IFS"
+    IFS=','
+    for port in $TUIC_HOP_PORTS; do
+      [ -n "$port" ] || continue
+      while ip6tables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1; do
+        ip6tables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || break
+      done
+    done
+    for port in $HY2_HOP_PORTS; do
+      [ -n "$port" ] || continue
+      while ip6tables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1; do
+        ip6tables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || break
+      done
+    done
+    IFS="$oldifs"
+  fi
+}
+
+apply_port_hops() {
+  clear_port_hops
+  if has iptables; then
+    oldifs="$IFS"
+    IFS=','
+    for port in $TUIC_HOP_PORTS; do
+      [ -n "$port" ] || continue
+      iptables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
+    done
+    for port in $HY2_HOP_PORTS; do
+      [ -n "$port" ] || continue
+      iptables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
+    done
+    IFS="$oldifs"
+  fi
+  if has ip6tables; then
+    oldifs="$IFS"
+    IFS=','
+    for port in $TUIC_HOP_PORTS; do
+      [ -n "$port" ] || continue
+      ip6tables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
+    done
+    for port in $HY2_HOP_PORTS; do
+      [ -n "$port" ] || continue
+      ip6tables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
+    done
+    IFS="$oldifs"
+  fi
+}
+
+hop_ports_valid() {
+  input="$1"
+  [ -z "$input" ] && return 0
+  oldifs="$IFS"
+  IFS=','
+  for port in $input; do
+    [ -n "$port" ] || {
+      IFS="$oldifs"
+      return 1
+    }
+    port_valid "$port" || {
+      IFS="$oldifs"
+      return 1
+    }
+  done
+  IFS="$oldifs"
+  return 0
+}
+
+prompt_hop_ports() {
+  label="$1"
+  current="$2"
+  while :; do
+    printf '%s [%s]: ' "$label" "${current:-留空表示关闭}" >&2
+    read -r value || exit 1
+    [ -z "$value" ] && value="$current"
+    if hop_ports_valid "$value"; then
+      printf '%s\n' "$value"
+      return
+    fi
+    log "端口格式无效，请输入逗号分隔的端口列表，例如 30000,30001" >&2
+  done
 }
 
 choose_firewall_action() {
@@ -843,8 +953,9 @@ change_ports_menu() {
     log "端口设置"
     log "1. 重新随机推荐端口"
     log "2. 手动自定义端口"
+    log "3. 设置 TUIC / Hysteria2 端口跳跃"
     log "0. 返回上层"
-    printf '请选择 [0-2] (默认 1): '
+    printf '请选择 [0-3] (默认 1): '
     read -r action || exit 1
     case "${action:-1}" in
       1)
@@ -865,6 +976,15 @@ change_ports_menu() {
           apply_changes
         fi
         log "端口已更新"
+        break
+        ;;
+      3)
+        TUIC_HOP_PORTS="$(prompt_hop_ports 'TUIC v5 跳跃端口(逗号分隔)' "$TUIC_HOP_PORTS")"
+        HY2_HOP_PORTS="$(prompt_hop_ports 'Hysteria2 跳跃端口(逗号分隔)' "$HY2_HOP_PORTS")"
+        if is_installed; then
+          apply_changes
+        fi
+        log "TUIC / Hysteria2 跳跃端口已更新"
         break
         ;;
       0) break ;;
@@ -1036,6 +1156,7 @@ uninstall_all() {
   need_root
   systemctl disable --now litebox.service 2>/dev/null || true
   systemctl disable --now litebox-argo.service 2>/dev/null || true
+  clear_port_hops
   rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$BIN" "$CLOUDFLARED_BIN"
   rm -rf "$BASE_DIR"
   systemctl daemon-reload
@@ -1135,6 +1256,8 @@ show_menu() {
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
+      [ -n "$TUIC_HOP_PORTS" ] && log "TUIC 跳跃端口: $TUIC_HOP_PORTS"
+      [ -n "$HY2_HOP_PORTS" ] && log "HY2 跳跃端口: $HY2_HOP_PORTS"
     else
       apply_saved_settings
       if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
@@ -1158,9 +1281,9 @@ show_menu() {
     log "7. 查看运行日志"
     log "8. 彻底卸载 Litebox"
     log "0. 退出脚本"
-    printf '请选择 [0-8] (默认 1): '
+    printf '请选择 [0-8]: '
     read -r action || exit 1
-    case "${action:-1}" in
+    case "$action" in
       1) install_menu ;;
       2) argo_menu ;;
       3) change_ports_menu ;;
@@ -1193,6 +1316,7 @@ install_all() {
   if [ "${FIREWALL_ACTION:-1}" = "1" ]; then
     open_service_ports
   fi
+  apply_port_hops
   enable_services
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     refresh_temp_argo_links || true
