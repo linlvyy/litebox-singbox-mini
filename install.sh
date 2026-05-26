@@ -9,6 +9,9 @@ CONF="$BASE_DIR/config.json"
 ENV_FILE="$BASE_DIR/env"
 LINKS_FILE="$BASE_DIR/links.txt"
 CERT_DIR="$BASE_DIR/cert"
+WARP_DIR="$BASE_DIR/warp"
+WARP_CONF="$WARP_DIR/wgcf.conf"
+WARP_SERVICE_NAME="wg-quick@wgcf"
 SERVICE=""
 ARGO_SERVICE=""
 CLI="/usr/local/bin/litebox"
@@ -45,11 +48,32 @@ CUSTOM_UUID="${CUSTOM_UUID:-}"
 FIREWALL_ACTION="${FIREWALL_ACTION:-1}"
 TUIC_HOP_PORTS="${TUIC_HOP_PORTS:-}"
 HY2_HOP_PORTS="${HY2_HOP_PORTS:-}"
+WARP_PRIVATE_KEY="${WARP_PRIVATE_KEY:-}"
+WARP_IPV4="${WARP_IPV4:-}"
+WARP_IPV6="${WARP_IPV6:-}"
+WARP_PEER_PUBLIC_KEY="${WARP_PEER_PUBLIC_KEY:-}"
+WARP_ENDPOINT_HOST="${WARP_ENDPOINT_HOST:-engage.cloudflareclient.com}"
+WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-2408}"
+WARP_ENABLED="${WARP_ENABLED:-0}"
 
 log() { printf '%s\n' "$*"; }
 die() { log "error: $*" >&2; exit 1; }
 need_root() { [ "$(id -u)" = "0" ] || die "please run as root"; }
 has() { command -v "$1" >/dev/null 2>&1; }
+
+pkg_install() {
+  if is_alpine && has apk; then
+    apk add --no-cache "$@"
+    return 0
+  fi
+  if has apt-get; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y "$@"
+    return 0
+  fi
+  die "unsupported package manager: need apk or apt-get"
+}
 
 detect_os() {
   if [ -n "$OS_ID" ]; then
@@ -122,6 +146,40 @@ service_disable_stop() {
   case "$INIT_SYSTEM" in
     systemd)
       systemctl disable --now "$name" 2>/dev/null || true
+      ;;
+    openrc)
+      rc-service "$name" stop >/dev/null 2>&1 || true
+      rc-update del "$name" default >/dev/null 2>&1 || true
+      ;;
+    *)
+      true
+      ;;
+  esac
+}
+
+service_enable_start_best_effort() {
+  detect_init_system
+  name="$1"
+  case "$INIT_SYSTEM" in
+    systemd)
+      systemctl enable --now "$name" >/dev/null 2>&1 || true
+      ;;
+    openrc)
+      rc-update add "$name" default >/dev/null 2>&1 || true
+      rc-service "$name" restart >/dev/null 2>&1 || rc-service "$name" start >/dev/null 2>&1 || true
+      ;;
+    *)
+      true
+      ;;
+  esac
+}
+
+service_disable_stop_best_effort() {
+  detect_init_system
+  name="$1"
+  case "$INIT_SYSTEM" in
+    systemd)
+      systemctl disable --now "$name" >/dev/null 2>&1 || true
       ;;
     openrc)
       rc-service "$name" stop >/dev/null 2>&1 || true
@@ -227,6 +285,31 @@ public_ip() {
     }
   done
   hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+has_public_ipv4() {
+  ip="$(public_ip 2>/dev/null || true)"
+  printf '%s\n' "$ip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
+has_public_ipv6() {
+  ip="$(public_ipv6 2>/dev/null || true)"
+  printf '%s\n' "$ip" | grep -q ':'
+}
+
+node_server_host() {
+  if [ -n "${LB_SERVER:-}" ]; then
+    server="$LB_SERVER"
+  else
+    server="$(public_ip)"
+    [ -n "$server" ] || server="$(public_ipv6)"
+  fi
+  [ -n "$server" ] || die "cannot detect public IPv4 or IPv6"
+  if printf '%s\n' "$server" | grep -q ':'; then
+    printf '[%s]\n' "$server"
+  else
+    printf '%s\n' "$server"
+  fi
 }
 
 public_ipv6() {
@@ -389,6 +472,13 @@ apply_saved_settings() {
   OUTBOUND_MODE="${OUTBOUND_MODE:-${LB_OUTBOUND_MODE:-auto}}"
   TUIC_HOP_PORTS="${TUIC_HOP_PORTS:-${LB_TUIC_HOP_PORTS:-}}"
   HY2_HOP_PORTS="${HY2_HOP_PORTS:-${LB_HY2_HOP_PORTS:-}}"
+  WARP_PRIVATE_KEY="${WARP_PRIVATE_KEY:-${LB_WARP_PRIVATE_KEY:-}}"
+  WARP_IPV4="${WARP_IPV4:-${LB_WARP_IPV4:-}}"
+  WARP_IPV6="${WARP_IPV6:-${LB_WARP_IPV6:-}}"
+  WARP_PEER_PUBLIC_KEY="${WARP_PEER_PUBLIC_KEY:-${LB_WARP_PEER_PUBLIC_KEY:-}}"
+  WARP_ENDPOINT_HOST="${WARP_ENDPOINT_HOST:-${LB_WARP_ENDPOINT_HOST:-engage.cloudflareclient.com}}"
+  WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-${LB_WARP_ENDPOINT_PORT:-2408}}"
+  WARP_ENABLED="${WARP_ENABLED:-${LB_WARP_ENABLED:-0}}"
 }
 
 save_env() {
@@ -418,6 +508,13 @@ LB_VMESS_LOCAL_PORT='$VMESS_LOCAL_PORT'
 LB_OUTBOUND_MODE='$OUTBOUND_MODE'
 LB_TUIC_HOP_PORTS='$TUIC_HOP_PORTS'
 LB_HY2_HOP_PORTS='$HY2_HOP_PORTS'
+LB_WARP_PRIVATE_KEY='$WARP_PRIVATE_KEY'
+LB_WARP_IPV4='$WARP_IPV4'
+LB_WARP_IPV6='$WARP_IPV6'
+LB_WARP_PEER_PUBLIC_KEY='$WARP_PEER_PUBLIC_KEY'
+LB_WARP_ENDPOINT_HOST='$WARP_ENDPOINT_HOST'
+LB_WARP_ENDPOINT_PORT='$WARP_ENDPOINT_PORT'
+LB_WARP_ENABLED='$WARP_ENABLED'
 EOF
   chmod 600 "$ENV_FILE"
 }
@@ -431,7 +528,14 @@ load_or_create_env() {
 
   apply_saved_settings
 
-  LB_SERVER="${LB_SERVER:-$(public_ip)}"
+  if [ -z "${LB_SERVER:-}" ]; then
+    if has_public_ipv4; then
+      LB_SERVER="$(public_ip)"
+    else
+      LB_SERVER="$(public_ipv6)"
+    fi
+  fi
+  [ -n "$LB_SERVER" ] || die "cannot detect public IPv4 or IPv6"
   LB_UUID="${LB_UUID:-$(uuid)}"
   if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
     set_default_ports
@@ -469,7 +573,14 @@ reset_identity() {
     . "$ENV_FILE"
   fi
   apply_saved_settings
-  LB_SERVER="${LB_SERVER:-$(public_ip)}"
+  if [ -z "${LB_SERVER:-}" ]; then
+    if has_public_ipv4; then
+      LB_SERVER="$(public_ip)"
+    else
+      LB_SERVER="$(public_ipv6)"
+    fi
+  fi
+  [ -n "$LB_SERVER" ] || die "cannot detect public IPv4 or IPv6"
   LB_UUID="${CUSTOM_UUID:-}"
   LB_PASSWORD=""
   LB_ANYTLS_PASSWORD=""
@@ -533,6 +644,62 @@ install_cloudflared() {
   rm -rf "$tmp"
 }
 
+warp_ready() {
+  [ "$WARP_ENABLED" = "1" ] &&
+  [ -n "$WARP_PRIVATE_KEY" ] &&
+  [ -n "$WARP_IPV4" ] &&
+  [ -n "$WARP_IPV6" ] &&
+  [ -n "$WARP_PEER_PUBLIC_KEY" ] &&
+  [ -f "$WARP_CONF" ]
+}
+
+install_warp_deps() {
+  pkg_install wireguard-tools openresolv
+}
+
+ensure_warp_keys() {
+  [ -n "$WARP_PRIVATE_KEY" ] && return 0
+  mkdir -p "$WARP_DIR"
+  umask 077
+  WARP_PRIVATE_KEY="$(wg genkey)"
+}
+
+write_warp_config() {
+  ensure_warp_keys
+  mkdir -p "$WARP_DIR"
+  cat >"$WARP_CONF" <<EOF
+[Interface]
+PrivateKey = $WARP_PRIVATE_KEY
+Address = $WARP_IPV4/32, $WARP_IPV6/128
+DNS = 1.1.1.1
+MTU = 1280
+Table = off
+PostUp = ip -4 rule add pref 10010 from all table main
+PostUp = ip -4 route add default dev %i table 51820
+PostDown = ip -4 rule del pref 10010 from all table main
+PostDown = ip -4 route del default dev %i table 51820
+
+[Peer]
+PublicKey = $WARP_PEER_PUBLIC_KEY
+AllowedIPs = 0.0.0.0/0
+Endpoint = $WARP_ENDPOINT_HOST:$WARP_ENDPOINT_PORT
+PersistentKeepalive = 25
+EOF
+  chmod 600 "$WARP_CONF"
+}
+
+enable_warp() {
+  install_warp_deps
+  write_warp_config
+  service_enable_start_best_effort "$WARP_SERVICE_NAME"
+  WARP_ENABLED=1
+}
+
+disable_warp() {
+  service_disable_stop_best_effort "$WARP_SERVICE_NAME"
+  WARP_ENABLED=0
+}
+
 gen_cert() {
   mkdir -p "$CERT_DIR"
   if [ -s "$CERT_DIR/cert.pem" ] && [ -s "$CERT_DIR/key.pem" ]; then
@@ -546,7 +713,10 @@ gen_cert() {
 write_config() {
   dns_block=""
   direct_resolver_line=""
-  if [ "$OUTBOUND_MODE" != "auto" ]; then
+  warp_outbound_block=""
+  final_outbound="direct"
+  case "$OUTBOUND_MODE" in
+    prefer_ipv4|prefer_ipv6|ipv4_only|ipv6_only)
     dns_block="$(cat <<EOF
   "dns": {
     "servers": [
@@ -559,6 +729,21 @@ write_config() {
 EOF
 )"
     direct_resolver_line="$(printf ',\n      "domain_resolver": {\n        "server": "local",\n        "strategy": "%s"\n      }' "$OUTBOUND_MODE")"
+      ;;
+  esac
+  if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
+    warp_ready || die "WARP IPv4 出口未配置，请先在菜单中启用 WARP"
+    final_outbound="warp"
+    warp_outbound_block="$(cat <<EOF
+,
+    {
+      "type": "direct",
+      "tag": "warp",
+      "bind_interface": "wgcf",
+      "domain_strategy": "ipv4_only"
+    }
+EOF
+)"
   fi
   cat >"$CONF" <<EOF
 {
@@ -685,10 +870,10 @@ $dns_block
     {
       "type": "block",
       "tag": "block"
-    }
+    }$warp_outbound_block
   ],
   "route": {
-    "final": "direct"
+    "final": "$final_outbound"
   }
 }
 EOF
@@ -870,7 +1055,7 @@ refresh_temp_argo_links() {
 }
 
 write_links() {
-  server="$LB_SERVER"
+  server="$(node_server_host)"
   vless="vless://$LB_UUID@$server:$VLESS_PORT?encryption=none&security=reality&sni=$REALITY_SNI&fp=chrome&pbk=$LB_REALITY_PUBLIC&sid=$LB_SHORT_ID&type=tcp&flow=xtls-rprx-vision#$NAME-vless-reality"
   anytls="anytls://$LB_ANYTLS_PASSWORD@$server:$ANYTLS_PORT?security=tls&sni=$TLS_SNI&insecure=1#$NAME-anytls"
   tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1#$NAME-tuic-v5"
@@ -938,6 +1123,7 @@ outbound_mode_text() {
     prefer_ipv6) printf 'IPv6 优先' ;;
     ipv4_only) printf '仅 IPv4' ;;
     ipv6_only) printf '仅 IPv6' ;;
+    warp_ipv4) printf 'WARP IPv4 出口' ;;
     *) printf '%s' "$OUTBOUND_MODE" ;;
   esac
 }
@@ -1148,15 +1334,18 @@ switch_outbound_menu() {
   fi
   while :; do
     printf '\n'
-    log "IPv4 / IPv6 出口切换"
+    log "IPv4 / IPv6 / WARP 出口切换"
     log "当前模式: $(outbound_mode_text)"
     log "1. 自动"
     log "2. IPv4 优先"
     log "3. IPv6 优先"
     log "4. 仅 IPv4"
     log "5. 仅 IPv6"
+    log "6. WARP IPv4 出口"
+    log "7. 启用或更新 WARP"
+    log "8. 关闭 WARP"
     log "0. 返回上层"
-    printf '请选择 [0-5]: '
+    printf '请选择 [0-8]: '
     read -r action || exit 1
     case "$action" in
       1) OUTBOUND_MODE="auto" ;;
@@ -1164,10 +1353,58 @@ switch_outbound_menu() {
       3) OUTBOUND_MODE="prefer_ipv6" ;;
       4) OUTBOUND_MODE="ipv4_only" ;;
       5) OUTBOUND_MODE="ipv6_only" ;;
+      6)
+        warp_ready || die "WARP IPv4 出口未配置，请先选择“7. 启用或更新 WARP”"
+        OUTBOUND_MODE="warp_ipv4"
+        ;;
+      7)
+        printf '请输入 WARP Interface PrivateKey [留空自动生成]: '
+        read -r warp_private_key_input || exit 1
+        [ -n "$warp_private_key_input" ] && WARP_PRIVATE_KEY="$warp_private_key_input"
+        printf '请输入 WARP IPv4 地址，例如 172.16.0.2: '
+        read -r warp_ipv4_input || exit 1
+        [ -n "$warp_ipv4_input" ] || die "WARP IPv4 地址不能为空"
+        printf '请输入 WARP IPv6 地址，例如 2606:4700:110:xxxx:xxxx:xxxx:xxxx:xxxx: '
+        read -r warp_ipv6_input || exit 1
+        [ -n "$warp_ipv6_input" ] || die "WARP IPv6 地址不能为空"
+        printf '请输入 WARP Peer PublicKey: '
+        read -r warp_peer_key_input || exit 1
+        [ -n "$warp_peer_key_input" ] || die "WARP Peer PublicKey 不能为空"
+        printf '请输入 WARP Endpoint Host [%s]: ' "$WARP_ENDPOINT_HOST"
+        read -r warp_endpoint_host_input || exit 1
+        printf '请输入 WARP Endpoint Port [%s]: ' "$WARP_ENDPOINT_PORT"
+        read -r warp_endpoint_port_input || exit 1
+        WARP_IPV4="$warp_ipv4_input"
+        WARP_IPV6="$warp_ipv6_input"
+        WARP_PEER_PUBLIC_KEY="$warp_peer_key_input"
+        [ -n "$warp_endpoint_host_input" ] && WARP_ENDPOINT_HOST="$warp_endpoint_host_input"
+        [ -n "$warp_endpoint_port_input" ] && WARP_ENDPOINT_PORT="$warp_endpoint_port_input"
+        enable_warp
+        if [ "$OUTBOUND_MODE" = "warp_ipv4" ] && is_installed; then
+          apply_changes
+        else
+          save_env
+        fi
+        log "WARP 已启用"
+        break
+        ;;
+      8)
+        disable_warp
+        if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
+          OUTBOUND_MODE="auto"
+        fi
+        if is_installed; then
+          apply_changes
+        else
+          save_env
+        fi
+        log "WARP 已关闭"
+        break
+        ;;
       0) break ;;
       *) log "无效选择"; continue ;;
     esac
-    if [ "$action" != "0" ]; then
+    if [ "$action" != "0" ] && [ "$action" != "7" ] && [ "$action" != "8" ]; then
       if is_installed; then
         apply_changes
       fi
@@ -1408,6 +1645,7 @@ uninstall_all() {
   need_root
   service_disable_stop litebox
   service_disable_stop litebox-argo
+  service_disable_stop_best_effort "$WARP_SERVICE_NAME"
   clear_port_hops
   rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$BIN" "$CLOUDFLARED_BIN" "$RUN_LITEBOX" "$RUN_ARGO"
   rm -rf "$BASE_DIR"
@@ -1502,6 +1740,7 @@ show_menu() {
       log "安装状态: 已安装"
       log "快捷命令: sudo LB / sudo lb"
       log "Argo 状态: $(argo_mode_text)"
+      log "WARP 状态: $([ "$WARP_ENABLED" = "1" ] && printf '已启用' || printf '未启用')"
       argo_host="$(current_argo_host)"
       [ -n "$argo_host" ] && log "Argo HOST: $argo_host"
       log "本机 IPv4: ${current_ipv4:-未检测到}"
@@ -1515,7 +1754,9 @@ show_menu() {
       if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
         set_default_ports
       fi
-      current_ipv4="$(public_ip || printf '%s' "$current_ipv4")"
+      if has_public_ipv4; then
+        current_ipv4="$(public_ip || printf '%s' "$current_ipv4")"
+      fi
       log "安装状态: 未安装"
       log "安装后快捷命令: sudo LB / sudo lb"
       log "本机 IPv4: ${current_ipv4:-未检测到}"
@@ -1527,7 +1768,7 @@ show_menu() {
     log "1. 安装 Litebox"
     log "2. Argo 隧道设置"
     log "3. 端口设置"
-    log "4. IPv4 / IPv6 出口切换"
+    log "4. IPv4 / IPv6 / WARP 出口切换"
     log "5. 重启 Litebox"
     log "6. 刷新并查看节点"
     log "7. 查看运行日志"

@@ -34,6 +34,7 @@ Alpine 安装行为：
 - 如果当前 `apk` 仓库没有 `sing-box`，再回退到 sing-box 官方发布包
 - Alpine 回退下载时只选 `musl` / 通用 Linux 包，不会选 `glibc` 包
 - 检测到 `OpenRC` 时，会生成 `litebox` / `litebox-argo` 的 OpenRC 服务并自动开机自启
+- IPv6-only 小鸡也可以安装，未开启 WARP 时会直接生成 IPv6 入站节点
 
 本地执行：
 
@@ -71,7 +72,7 @@ sudo litebox uninstall
 - `1` 安装 Litebox
 - `2` Argo 隧道设置
 - `3` 端口设置
-- `4` IPv4 / IPv6 出口切换
+- `4` IPv4 / IPv6 / WARP 出口切换
 - `5` 重启 Litebox
 - `6` 刷新并查看节点
 - `7` 查看运行日志
@@ -99,6 +100,17 @@ Argo 子菜单支持：
 - 自定义端口后安装
 - 大部分菜单支持直接回车，默认选择 `1`
 - 最外层主菜单不默认选择，避免误触安装
+
+出口菜单支持：
+
+- 自动
+- IPv4 优先
+- IPv6 优先
+- 仅 IPv4
+- 仅 IPv6
+- WARP IPv4 出口
+- 启用或更新 WARP
+- 关闭 WARP
 
 每次安装或重装时，都会额外让你选择：
 
@@ -178,12 +190,14 @@ sudo litebox logs
 - `TUIC v5`、`Hysteria2` 和端口跳跃端口都是 UDP 转发到对应协议端口，协议本身仍需要 UUID/密码认证。
 - `/etc/litebox/env` 和 `/etc/litebox/links.txt` 默认权限是 `0600`，避免节点密钥被普通用户直接读取。
 - Alpine / OpenRC 安装后也会创建 `litebox`、`LB`、`lb` 三个快捷命令。
+- WARP 默认不安装、不启用，只有用户在菜单里手动开启时才会安装 `wireguard-tools` / `openresolv` 等依赖。
 
 ## 生成文件
 
 - `/etc/litebox/config.json`
 - `/etc/litebox/env`
 - `/etc/litebox/links.txt`
+- `/etc/litebox/warp/wgcf.conf`（仅启用 WARP 后生成）
 - `/etc/systemd/system/litebox.service` 或 `/etc/init.d/litebox`
 - `/etc/systemd/system/litebox-argo.service` 或 `/etc/init.d/litebox-argo`
 - `/usr/local/bin/litebox`
@@ -209,6 +223,8 @@ sudo litebox logs
 - VLESS Reality 不需要证书，使用 `xtls-rprx-vision`。
 - 安装时如果选择自动处理，脚本会尝试开放节点端口并关闭常见防火墙。
 - Alpine 使用 `OpenRC`，脚本会优先尝试 `apk add sing-box`；Debian / Ubuntu 通常使用 `systemd`，脚本会自动识别并生成对应服务。
+- IPv6-only 机器如果没有公网 IPv4，脚本会继续安装，并优先生成 `[IPv6]:端口` 形式的节点地址。
+- WARP 采用轻量 WireGuard 方式，可选启用；启用后可把 sing-box 出站切到 `WARP IPv4`，用于 IPv4 出站访问。
 - 对 128 MB 小鸡来说，脚本主体没有问题，额外压力主要来自启用 Argo 后的 `cloudflared` 进程。
 
 ## 参考
