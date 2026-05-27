@@ -442,6 +442,73 @@ warp_status_text() {
   fi
 }
 
+vendor_short_name() {
+  vendor_info=""
+  for file in /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name /sys/class/dmi/id/board_vendor; do
+    [ -r "$file" ] && vendor_info="$vendor_info $(cat "$file" 2>/dev/null || true)"
+  done
+  vendor_info="$vendor_info $(hostname 2>/dev/null || true)"
+  vendor_info="$(printf '%s' "$vendor_info" | tr '[:upper:]' '[:lower:]')"
+  case "$vendor_info" in
+    *amazon*|*ec2*) printf 'aws' ;;
+    *google*|*gce*) printf 'gcp' ;;
+    *microsoft*|*azure*) printf 'azure' ;;
+    *oracle*|*oci*) printf 'oci' ;;
+    *alibaba*|*aliyun*) printf 'aliyun' ;;
+    *tencent*) printf 'tencent' ;;
+    *huawei*) printf 'huawei' ;;
+    *digitalocean*) printf 'do' ;;
+    *vultr*) printf 'vultr' ;;
+    *linode*) printf 'linode' ;;
+    *hetzner*) printf 'hetzner' ;;
+    *) printf 'vps' ;;
+  esac
+}
+
+public_country_code() {
+  for url in https://ipapi.co/country/ https://ifconfig.co/country-iso; do
+    code="$(curl -fsSL --connect-timeout 3 "$url" 2>/dev/null | tr -d '\r\n' || true)"
+    printf '%s\n' "$code" | grep -Eq '^[A-Za-z]{2}$' && {
+      printf '%s\n' "$(printf '%s' "$code" | tr '[:lower:]' '[:upper:]')"
+      return 0
+    }
+  done
+  printf '未知\n'
+}
+
+country_name_zh() {
+  case "$1" in
+    SG) printf '新加坡' ;;
+    JP) printf '日本' ;;
+    HK) printf '香港' ;;
+    US) printf '美国' ;;
+    KR) printf '韩国' ;;
+    DE) printf '德国' ;;
+    GB) printf '英国' ;;
+    NL) printf '荷兰' ;;
+    FR) printf '法国' ;;
+    CA) printf '加拿大' ;;
+    AU) printf '澳大利亚' ;;
+    IN) printf '印度' ;;
+    RU) printf '俄罗斯' ;;
+    TW) printf '台湾' ;;
+    MO) printf '澳门' ;;
+    MY) printf '马来西亚' ;;
+    TH) printf '泰国' ;;
+    VN) printf '越南' ;;
+    ID) printf '印度尼西亚' ;;
+    PH) printf '菲律宾' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+node_name_prefix() {
+  vendor="$(vendor_short_name)"
+  country_code="$(public_country_code)"
+  country_name="$(country_name_zh "$country_code")"
+  printf '%s%s\n' "$vendor" "$country_name"
+}
+
 hop_status_text() {
   if [ -n "$1" ]; then
     printf '%s\n' "$1"
@@ -1174,19 +1241,20 @@ refresh_temp_argo_links() {
 }
 
 write_links() {
+  node_prefix="$(node_name_prefix)"
   server="$(node_server_host)"
-  vless="vless://$LB_UUID@$server:$VLESS_PORT?encryption=none&security=reality&sni=$REALITY_SNI&fp=chrome&pbk=$LB_REALITY_PUBLIC&sid=$LB_SHORT_ID&type=tcp&flow=xtls-rprx-vision#$NAME-vless-reality"
-  anytls="anytls://$LB_ANYTLS_PASSWORD@$server:$ANYTLS_PORT?security=tls&sni=$TLS_SNI&insecure=1#$NAME-anytls"
+  vless="vless://$LB_UUID@$server:$VLESS_PORT?encryption=none&security=reality&sni=$REALITY_SNI&fp=chrome&pbk=$LB_REALITY_PUBLIC&sid=$LB_SHORT_ID&type=tcp&flow=xtls-rprx-vision#$node_prefix-reality"
+  anytls="anytls://$LB_ANYTLS_PASSWORD@$server:$ANYTLS_PORT?security=tls&sni=$TLS_SNI&insecure=1#$node_prefix-anytls"
   if [ -n "$TUIC_HOP_PORTS" ]; then
-    tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1&port_hopping=$TUIC_HOP_PORTS#$NAME-tuic-v5"
+    tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1&port_hopping=$TUIC_HOP_PORTS#$node_prefix-tuic"
   else
-    tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1#$NAME-tuic-v5"
+    tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1#$node_prefix-tuic"
   fi
   if [ -n "$HY2_HOP_PORTS" ]; then
     hy2_export_hop="$(printf '%s' "$HY2_HOP_PORTS" | tr ':' '-')"
-    hy2="hysteria2://$LB_HY2_PASSWORD@$server:$HY2_PORT?obfs=salamander&obfs-password=$LB_HY2_OBFS&sni=$TLS_SNI&insecure=1&mport=$hy2_export_hop#$NAME-hysteria2"
+    hy2="hysteria2://$LB_HY2_PASSWORD@$server:$HY2_PORT?obfs=salamander&obfs-password=$LB_HY2_OBFS&sni=$TLS_SNI&insecure=1&mport=$hy2_export_hop#$node_prefix-hy2"
   else
-    hy2="hysteria2://$LB_HY2_PASSWORD@$server:$HY2_PORT?obfs=salamander&obfs-password=$LB_HY2_OBFS&sni=$TLS_SNI&insecure=1#$NAME-hysteria2"
+    hy2="hysteria2://$LB_HY2_PASSWORD@$server:$HY2_PORT?obfs=salamander&obfs-password=$LB_HY2_OBFS&sni=$TLS_SNI&insecure=1#$node_prefix-hy2"
   fi
   vmess_path="${VMESS_WS_PATH#/}"
 
@@ -1222,7 +1290,7 @@ EOF
       vmess_host="$argo_host"
       vmess_sni="$argo_host"
     fi
-    vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"%s","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s","fp":"chrome"}' "$NAME" "$vmess_add" "$vmess_port" "$LB_UUID" "$vmess_host" "$vmess_path" "$vmess_sni" | b64_nowrap)"
+    vmess_json="$(printf '{"v":"2","ps":"%s-vmess-argo","add":"%s","port":"%s","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s","fp":"chrome"}' "$node_prefix" "$vmess_add" "$vmess_port" "$LB_UUID" "$vmess_host" "$vmess_path" "$vmess_sni" | b64_nowrap)"
     cat >>"$LINKS_FILE" <<EOF
 
 VMess-WS-Argo:
@@ -1918,6 +1986,13 @@ choose_uuid_mode() {
   done
 }
 
+maybe_warn_ipv6_only_no_nat64() {
+  if [ "$(ipv4_status_text)" = "无" ] && [ "$(ipv6_status_text)" = "有" ] && [ "$(nat64_status_text)" = "不可用" ] && [ "$WARP_ENABLED" != "1" ]; then
+    log "提示: 当前机器只有 IPv6，且未检测到 NAT64 / DNS64。"
+    log "如需更稳的 IPv4 出口，可在“4. IPv4 / IPv6 / WARP 出口切换”中按需启用 WARP。"
+  fi
+}
+
 show_menu() {
   while :; do
     printf '\n'
@@ -1928,21 +2003,6 @@ show_menu() {
       load_or_create_env
     else
       apply_saved_settings
-    fi
-    ipv4_status="$(ipv4_status_text)"
-    ipv6_status="$(ipv6_status_text)"
-    nat64_status="$(nat64_status_text)"
-    dns64_status="$(dns64_status_text)"
-    warp_status="$(warp_status_text)"
-    log "IPv4: $ipv4_status"
-    log "IPv6: $ipv6_status"
-    log "NAT64: $nat64_status"
-    log "DNS64: $dns64_status"
-    log "WARP: $warp_status"
-    log "TUIC 跳跃: $(hop_status_text "$TUIC_HOP_PORTS")"
-    log "HY2 跳跃: $(hop_status_text "$HY2_HOP_PORTS")"
-    if [ "$ipv4_status" = "无" ] && [ "$ipv6_status" = "有" ] && [ "$nat64_status" = "不可用" ] && [ "$WARP_ENABLED" != "1" ]; then
-      log "提示: 当前是 IPv6-only 且未检测到 NAT64，可选在“4. IPv4 / IPv6 / WARP 出口切换”中启用 WARP。"
     fi
     if is_installed; then
       if printf '%s\n' "${LB_SERVER:-}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -1959,6 +2019,8 @@ show_menu() {
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
+      log "TUIC 跳跃: $(hop_status_text "$TUIC_HOP_PORTS")"
+      log "HY2 跳跃: $(hop_status_text "$HY2_HOP_PORTS")"
     else
       if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
         set_default_ports
@@ -1972,6 +2034,8 @@ show_menu() {
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
       log "默认端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
+      log "TUIC 跳跃: $(hop_status_text "$TUIC_HOP_PORTS")"
+      log "HY2 跳跃: $(hop_status_text "$HY2_HOP_PORTS")"
     fi
     printf '\n'
     log "1. 安装 Litebox"
@@ -2006,6 +2070,7 @@ show_menu() {
 install_all() {
   need_root
   install_deps_hint
+  maybe_warn_ipv6_only_no_nat64
   install_sing_box
   load_or_create_env
   install_cloudflared
