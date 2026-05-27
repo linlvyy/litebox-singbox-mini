@@ -1722,9 +1722,9 @@ change_ports_menu() {
     log "3. 设置 TUIC 端口跳跃"
     log "4. 设置 Hysteria2 端口跳跃"
     log "0. 返回上层"
-    printf '请选择 [0-4] (默认 1): '
+    printf '请选择 [0-4]: '
     read -r action || exit 1
-    case "${action:-1}" in
+    case "$action" in
       1)
         set_default_ports
         if is_installed; then
@@ -1948,7 +1948,7 @@ install_menu() {
   while :; do
     printf '\n'
     log "安装设置"
-    log "1. 安装 Litebox"
+    log "1. 安装/更新 Litebox"
     log "2. 更新 Litebox 脚本"
     log "0. 返回主菜单"
     printf '请选择 [0-2] (默认 1): '
