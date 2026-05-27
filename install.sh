@@ -1305,13 +1305,6 @@ $tuic
 
 Hysteria2:
 $hy2
-
-Server: $server
-UUID: $LB_UUID
-Reality public key: $LB_REALITY_PUBLIC
-Reality short id: $LB_SHORT_ID
-Outbound mode: $OUTBOUND_MODE
-Shortcut: sudo LB
 EOF
   if argo_host="$(argo_export_host)"; then
     if [ -n "$ARGO_DOMAIN" ]; then
@@ -1332,6 +1325,15 @@ VMess-WS-Argo:
 vmess://$vmess_json
 EOF
   fi
+  cat >>"$LINKS_FILE" <<EOF
+
+Server: $server
+UUID: $LB_UUID
+Reality public key: $LB_REALITY_PUBLIC
+Reality short id: $LB_SHORT_ID
+Outbound mode: $OUTBOUND_MODE
+Shortcut: sudo LB
+EOF
   chmod 600 "$LINKS_FILE"
 }
 
