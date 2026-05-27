@@ -2,7 +2,7 @@
 set -eu
 
 NAME="litebox"
-VERSION="1.0.0"
+VERSION="1.0.1"
 HOP_PORTS_MAX=50
 BIN="/usr/local/bin/sing-box"
 CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
@@ -1701,7 +1701,11 @@ prompt_port() {
 update_script_only() {
   need_root
   write_cli
+  printf '\n'
   log "Litebox 脚本已更新到版本 $VERSION。"
+  printf '按回车返回主菜单...'
+  read -r _ || exit 1
+  exec "$CLI" menu
 }
 
 change_ports_menu() {
@@ -1952,6 +1956,7 @@ install_menu() {
       printf '\n'
       log "Litebox 当前已经安装。"
       log "如果要重新安装，请先选择主菜单里的“8. 彻底卸载 Litebox”，再重新执行安装。"
+      log "如果只是更新脚本，请直接选择“3. 更新 Litebox 脚本”。"
     fi
     printf '请选择 [0-3] (默认 1): '
     read -r action || exit 1
