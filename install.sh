@@ -2,6 +2,8 @@
 set -eu
 
 NAME="litebox"
+VERSION="1.0.0"
+HOP_PORTS_MAX=50
 BIN="/usr/local/bin/sing-box"
 CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
 BASE_DIR="/etc/litebox"
@@ -515,6 +517,24 @@ hop_status_text() {
   else
     printf '关闭\n'
   fi
+}
+
+hop_ports_count() {
+  input="$(printf '%s' "$1" | tr '，' ',')"
+  [ -z "$input" ] && {
+    printf '0\n'
+    return 0
+  }
+  case "$input" in
+    *:*)
+      start_port="${input%%:*}"
+      end_port="${input##*:}"
+      printf '%s\n' "$(( end_port - start_port + 1 ))"
+      ;;
+    *)
+      printf '1\n'
+      ;;
+  esac
 }
 
 download_url() {
@@ -1500,6 +1520,7 @@ hop_ports_valid() {
       port_valid "$input" || return 1
       ;;
   esac
+  [ "$(hop_ports_count "$input")" -le "$HOP_PORTS_MAX" ] || return 1
   return 0
 }
 
@@ -1537,7 +1558,7 @@ prompt_hop_ports() {
     [ -z "$value" ] && value="$current"
     value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | tr '，' ',')"
     case "$value" in
-      0|off|disable)
+      0)
         printf '\n'
         return
         ;;
@@ -1546,7 +1567,7 @@ prompt_hop_ports() {
       printf '%s\n' "$value"
       return
     fi
-    log "端口格式无效，请输入单端口、范围，或输入 0/off/disable 关闭，例如 12310 或 12310:12350" >&2
+    log "端口格式无效，跳跃端口最多允许 $HOP_PORTS_MAX 个。请输入单端口、范围，或输入 0 关闭，例如 12310 或 12310:12350" >&2
   done
 }
 
@@ -1677,6 +1698,12 @@ prompt_port() {
   done
 }
 
+update_script_only() {
+  need_root
+  write_cli
+  log "Litebox 脚本已更新到版本 $VERSION。"
+}
+
 change_ports_menu() {
   if is_installed; then
     load_or_create_env
@@ -1723,7 +1750,7 @@ change_ports_menu() {
         break
         ;;
       3)
-        TUIC_HOP_PORTS="$(prompt_hop_ports 'TUIC v5 跳跃端口(单端口/范围，0/off/disable 关闭)' "$TUIC_HOP_PORTS")"
+        TUIC_HOP_PORTS="$(prompt_hop_ports 'TUIC v5 跳跃端口(单端口/范围，0 关闭，最多 50 个端口)' "$TUIC_HOP_PORTS")"
         if is_installed; then
           apply_changes
           display_links_screen "端口已更新"
@@ -1733,7 +1760,7 @@ change_ports_menu() {
         break
         ;;
       4)
-        HY2_HOP_PORTS="$(prompt_hop_ports 'Hysteria2 跳跃端口(单端口/范围，0/off/disable 关闭)' "$HY2_HOP_PORTS")"
+        HY2_HOP_PORTS="$(prompt_hop_ports 'Hysteria2 跳跃端口(单端口/范围，0 关闭，最多 50 个端口)' "$HY2_HOP_PORTS")"
         if is_installed; then
           apply_changes
           display_links_screen "端口已更新"
@@ -1919,13 +1946,14 @@ install_menu() {
     log "安装设置"
     log "1. 使用随机推荐端口安装"
     log "2. 自定义端口后安装"
+    log "3. 更新 Litebox 脚本"
     log "0. 返回主菜单"
     if is_installed; then
       printf '\n'
       log "Litebox 当前已经安装。"
       log "如果要重新安装，请先选择主菜单里的“8. 彻底卸载 Litebox”，再重新执行安装。"
     fi
-    printf '请选择 [0-2] (默认 1): '
+    printf '请选择 [0-3] (默认 1): '
     read -r action || exit 1
     case "${action:-1}" in
       1)
@@ -1947,6 +1975,10 @@ install_menu() {
         choose_uuid_mode
         choose_firewall_action
         install_all
+        break
+        ;;
+      3)
+        update_script_only
         break
         ;;
       0) break ;;
@@ -1997,6 +2029,7 @@ show_menu() {
   while :; do
     printf '\n'
     log "Litebox 快捷菜单"
+    log "版本: $VERSION"
     current_ipv4="$(local_ipv4 || true)"
     current_ipv6="$(local_ipv6 || true)"
     if is_installed; then
