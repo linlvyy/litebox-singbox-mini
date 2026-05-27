@@ -120,10 +120,21 @@ Argo 子菜单支持：
 
 主界面会额外显示：
 
-- 本机 IPv4
-- 本机 IPv6
+- IPv4 / IPv6 状态
+- NAT64 / DNS64 状态
+- WARP 状态
 - 当前出口模式
 - 当前 Argo HOST（启用 Argo 后）
+- TUIC / Hysteria2 跳跃状态
+
+对于 IPv6-only VPS，脚本会额外检测：
+
+- 是否有公网 IPv4
+- 是否有 IPv6
+- `ipv4only.arpa` 的 AAAA 解析是否存在
+- 是否可用 NAT64 / DNS64
+
+如果是 IPv6-only 且检测不到 NAT64，菜单顶部会提示你可选启用 WARP 作为 IPv4 出口，但不会强制安装。
 
 ## 端口策略
 
@@ -135,7 +146,8 @@ Argo 子菜单支持：
 
 - 重新随机推荐端口
 - 手动自定义端口
-- 设置 `TUIC v5` / `Hysteria2` 端口跳跃
+- 单独设置 `TUIC v5` 端口跳跃
+- 单独设置 `Hysteria2` 端口跳跃
 
 如果你想在首次安装时通过环境变量指定：
 
@@ -184,12 +196,23 @@ sudo litebox logs
 
 - 单端口，例如 `12310`
 - 范围端口，例如 `12310:12350`
+- 输入 `0`
+- 输入 `off`
+- 输入 `disable`
 
 导出节点时：
 
 - `TUIC v5` 会在链接里附带 `port_hopping=12310:12350`
 - `Hysteria2` 会在链接里附带 `mport=12310-12350`
-- 如果只是单端口，则保持原来的单端口导出
+- 如果只是单端口，则分别导出对应单端口
+- 如果关闭跳跃，则不会输出 `port_hopping` 或 `mport`
+
+`TUIC v5` 和 `Hysteria2` 的跳跃端口现在互不影响，可以：
+
+- 只开 `TUIC v5`
+- 只开 `Hysteria2`
+- 两个都开
+- 两个都关
 
 ## 安全边界
 
@@ -233,6 +256,7 @@ sudo litebox logs
 - 安装时如果选择自动处理，脚本会尝试开放节点端口并关闭常见防火墙。
 - Alpine 使用 `OpenRC`，脚本会优先尝试 `apk add sing-box`；Debian / Ubuntu 通常使用 `systemd`，脚本会自动识别并生成对应服务。
 - IPv6-only 机器如果没有公网 IPv4，脚本会继续安装，并优先生成 `[IPv6]:端口` 形式的节点地址。
+- 如果 IPv6-only 机器存在 NAT64 / DNS64，默认不需要 WARP 也可以继续使用。
 - WARP 采用轻量 WireGuard 方式，可选启用；启用后可把 sing-box 出站切到 `WARP IPv4`，用于 IPv4 出站访问。
 - 对 128 MB 小鸡来说，脚本主体没有问题，额外压力主要来自启用 Argo 后的 `cloudflared` 进程。
 

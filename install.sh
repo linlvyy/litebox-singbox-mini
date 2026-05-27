@@ -363,6 +363,93 @@ local_ipv6() {
   true
 }
 
+resolve_ipv4only_aaaa() {
+  if has getent; then
+    addr="$(getent ahostsv6 ipv4only.arpa 2>/dev/null | awk '/:/ {print $1; exit}')"
+    [ -n "$addr" ] && {
+      printf '%s\n' "$addr"
+      return 0
+    }
+  fi
+  if has ping6; then
+    addr="$(ping6 -c 1 -w 2 ipv4only.arpa 2>/dev/null | sed -n 's/^PING[^(]*(\([^)]*\)).*/\1/p' | head -n 1)"
+    [ -n "$addr" ] && {
+      printf '%s\n' "$addr"
+      return 0
+    }
+  fi
+  if has ping; then
+    addr="$(ping -6 -c 1 -w 2 ipv4only.arpa 2>/dev/null | sed -n 's/^PING[^(]*(\([^)]*\)).*/\1/p' | head -n 1)"
+    [ -n "$addr" ] && {
+      printf '%s\n' "$addr"
+      return 0
+    }
+  fi
+  return 1
+}
+
+has_dns64() {
+  addr="$(resolve_ipv4only_aaaa 2>/dev/null || true)"
+  printf '%s\n' "$addr" | grep -q ':'
+}
+
+has_nat64() {
+  addr="$(resolve_ipv4only_aaaa 2>/dev/null || true)"
+  printf '%s\n' "$addr" | grep -q ':'
+}
+
+ipv4_status_text() {
+  if has_public_ipv4; then
+    printf '有'
+  else
+    printf '无'
+  fi
+}
+
+ipv6_status_text() {
+  if has_public_ipv6 || [ -n "$(local_ipv6 2>/dev/null || true)" ]; then
+    printf '有'
+  else
+    printf '无'
+  fi
+}
+
+nat64_status_text() {
+  if has_nat64; then
+    printf '可用'
+  else
+    printf '不可用'
+  fi
+}
+
+dns64_status_text() {
+  if has_dns64; then
+    printf '可用'
+  else
+    printf '不可用'
+  fi
+}
+
+warp_status_text() {
+  if [ "$WARP_ENABLED" = "1" ]; then
+    if service_is_active "$WARP_SERVICE_NAME"; then
+      printf '已启用'
+    else
+      printf '已配置'
+    fi
+  else
+    printf '未启用'
+  fi
+}
+
+hop_status_text() {
+  if [ -n "$1" ]; then
+    printf '%s\n' "$1"
+  else
+    printf '关闭\n'
+  fi
+}
+
 download_url() {
   repo="$1"
   pattern="$2"
@@ -1233,8 +1320,6 @@ set_default_ports() {
 open_service_ports() {
   tcp_ports="$VLESS_PORT,$ANYTLS_PORT"
   udp_ports="$TUIC_PORT,$HY2_PORT"
-  [ -n "$TUIC_HOP_PORTS" ] && udp_ports="$udp_ports,$TUIC_HOP_PORTS"
-  [ -n "$HY2_HOP_PORTS" ] && udp_ports="$udp_ports,$HY2_HOP_PORTS"
 
   if has ufw; then
     ufw --force disable >/dev/null 2>&1 || true
@@ -1258,42 +1343,32 @@ open_service_ports() {
 
 clear_port_hops() {
   if has iptables; then
-    oldifs="$IFS"
-    IFS=','
-    expanded_tuic_hop_ports="$(expand_hop_ports "$TUIC_HOP_PORTS")"
-    for port in $expanded_tuic_hop_ports; do
-      [ -n "$port" ] || continue
-      while iptables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1; do
-        iptables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || break
-      done
+    while rule="$(iptables -t nat -S PREROUTING 2>/dev/null | grep -m 1 'litebox-tuic-hop' || true)"; [ -n "$rule" ]; do
+      iptables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
     done
-    expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
-    for port in $expanded_hy2_hop_ports; do
-      [ -n "$port" ] || continue
-      while iptables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1; do
-        iptables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || break
-      done
+    while rule="$(iptables -t nat -S PREROUTING 2>/dev/null | grep -m 1 'litebox-hy2-hop' || true)"; [ -n "$rule" ]; do
+      iptables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
     done
-    IFS="$oldifs"
+    while rule="$(iptables -S INPUT 2>/dev/null | grep -m 1 'litebox-tuic-hop-input' || true)"; [ -n "$rule" ]; do
+      iptables -D ${rule#-A } >/dev/null 2>&1 || break
+    done
+    while rule="$(iptables -S INPUT 2>/dev/null | grep -m 1 'litebox-hy2-hop-input' || true)"; [ -n "$rule" ]; do
+      iptables -D ${rule#-A } >/dev/null 2>&1 || break
+    done
   fi
   if has ip6tables; then
-    oldifs="$IFS"
-    IFS=','
-    expanded_tuic_hop_ports="$(expand_hop_ports "$TUIC_HOP_PORTS")"
-    for port in $expanded_tuic_hop_ports; do
-      [ -n "$port" ] || continue
-      while ip6tables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1; do
-        ip6tables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || break
-      done
+    while rule="$(ip6tables -t nat -S PREROUTING 2>/dev/null | grep -m 1 'litebox-tuic-hop' || true)"; [ -n "$rule" ]; do
+      ip6tables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
     done
-    expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
-    for port in $expanded_hy2_hop_ports; do
-      [ -n "$port" ] || continue
-      while ip6tables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1; do
-        ip6tables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || break
-      done
+    while rule="$(ip6tables -t nat -S PREROUTING 2>/dev/null | grep -m 1 'litebox-hy2-hop' || true)"; [ -n "$rule" ]; do
+      ip6tables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
     done
-    IFS="$oldifs"
+    while rule="$(ip6tables -S INPUT 2>/dev/null | grep -m 1 'litebox-tuic-hop-input' || true)"; [ -n "$rule" ]; do
+      ip6tables -D ${rule#-A } >/dev/null 2>&1 || break
+    done
+    while rule="$(ip6tables -S INPUT 2>/dev/null | grep -m 1 'litebox-hy2-hop-input' || true)"; [ -n "$rule" ]; do
+      ip6tables -D ${rule#-A } >/dev/null 2>&1 || break
+    done
   fi
 }
 
@@ -1305,11 +1380,15 @@ apply_port_hops() {
     expanded_tuic_hop_ports="$(expand_hop_ports "$TUIC_HOP_PORTS")"
     for port in $expanded_tuic_hop_ports; do
       [ -n "$port" ] || continue
+      iptables -C INPUT -p udp --dport "$port" -m comment --comment litebox-tuic-hop-input -j ACCEPT >/dev/null 2>&1 ||
+        iptables -I INPUT -p udp --dport "$port" -m comment --comment litebox-tuic-hop-input -j ACCEPT >/dev/null 2>&1 || true
       iptables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
     done
     expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
     for port in $expanded_hy2_hop_ports; do
       [ -n "$port" ] || continue
+      iptables -C INPUT -p udp --dport "$port" -m comment --comment litebox-hy2-hop-input -j ACCEPT >/dev/null 2>&1 ||
+        iptables -I INPUT -p udp --dport "$port" -m comment --comment litebox-hy2-hop-input -j ACCEPT >/dev/null 2>&1 || true
       iptables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
     done
     IFS="$oldifs"
@@ -1320,11 +1399,15 @@ apply_port_hops() {
     expanded_tuic_hop_ports="$(expand_hop_ports "$TUIC_HOP_PORTS")"
     for port in $expanded_tuic_hop_ports; do
       [ -n "$port" ] || continue
+      ip6tables -C INPUT -p udp --dport "$port" -m comment --comment litebox-tuic-hop-input -j ACCEPT >/dev/null 2>&1 ||
+        ip6tables -I INPUT -p udp --dport "$port" -m comment --comment litebox-tuic-hop-input -j ACCEPT >/dev/null 2>&1 || true
       ip6tables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
     done
     expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
     for port in $expanded_hy2_hop_ports; do
       [ -n "$port" ] || continue
+      ip6tables -C INPUT -p udp --dport "$port" -m comment --comment litebox-hy2-hop-input -j ACCEPT >/dev/null 2>&1 ||
+        ip6tables -I INPUT -p udp --dport "$port" -m comment --comment litebox-hy2-hop-input -j ACCEPT >/dev/null 2>&1 || true
       ip6tables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
     done
     IFS="$oldifs"
@@ -1334,91 +1417,68 @@ apply_port_hops() {
 hop_ports_valid() {
   input="$(printf '%s' "$1" | tr '，' ',')"
   [ -z "$input" ] && return 0
-  oldifs="$IFS"
-  IFS=','
-  for port in $input; do
-    [ -n "$port" ] || {
-      IFS="$oldifs"
+  case "$input" in
+    *','*)
       return 1
-    }
-    case "$port" in
-      *:*)
-        start_port="${port%%:*}"
-        end_port="${port##*:}"
-        port_valid "$start_port" || {
-          IFS="$oldifs"
-          return 1
-        }
-        port_valid "$end_port" || {
-          IFS="$oldifs"
-          return 1
-        }
-        [ "$start_port" -le "$end_port" ] || {
-          IFS="$oldifs"
-          return 1
-        }
-        ;;
-      *)
-        port_valid "$port" || {
-          IFS="$oldifs"
-          return 1
-        }
-        ;;
-    esac
-  done
-  IFS="$oldifs"
+      ;;
+    *:*)
+      start_port="${input%%:*}"
+      end_port="${input##*:}"
+      port_valid "$start_port" || return 1
+      port_valid "$end_port" || return 1
+      [ "$start_port" -le "$end_port" ] || return 1
+      ;;
+    *)
+      port_valid "$input" || return 1
+      ;;
+  esac
   return 0
 }
 
 expand_hop_ports() {
   input="$(printf '%s' "$1" | tr '，' ',')"
   [ -z "$input" ] && return 0
-  oldifs="$IFS"
-  first_item=1
-  IFS=','
-  for port in $input; do
-    [ -n "$port" ] || continue
-    case "$port" in
-      *:*)
-        start_port="${port%%:*}"
-        end_port="${port##*:}"
-        current_port="$start_port"
-        while [ "$current_port" -le "$end_port" ]; do
-          if [ "$first_item" -eq 1 ]; then
-            printf '%s' "$current_port"
-            first_item=0
-          else
-            printf ',%s' "$current_port"
-          fi
-          current_port=$((current_port + 1))
-        done
-        ;;
-      *)
+  case "$input" in
+    *:*)
+      start_port="${input%%:*}"
+      end_port="${input##*:}"
+      current_port="$start_port"
+      first_item=1
+      while [ "$current_port" -le "$end_port" ]; do
         if [ "$first_item" -eq 1 ]; then
-          printf '%s' "$port"
+          printf '%s' "$current_port"
           first_item=0
         else
-          printf ',%s' "$port"
+          printf ',%s' "$current_port"
         fi
-        ;;
-    esac
-  done
-  IFS="$oldifs"
+        current_port=$((current_port + 1))
+      done
+      ;;
+    *)
+      printf '%s' "$input"
+      ;;
+  esac
 }
 
 prompt_hop_ports() {
   label="$1"
   current="$2"
   while :; do
-    printf '%s [%s]: ' "$label" "${current:-留空表示关闭}" >&2
+    printf '%s [%s]: ' "$label" "$(hop_status_text "$current")" >&2
     read -r value || exit 1
     [ -z "$value" ] && value="$current"
-    value="$(printf '%s' "$value" | tr '，' ',')"
+    value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | tr '，' ',')"
+    case "$value" in
+      0|off|disable)
+        printf '\n'
+        return
+        ;;
+    esac
     if hop_ports_valid "$value"; then
       printf '%s\n' "$value"
       return
     fi
-    log "端口格式无效，请输入单端口或范围，例如 12310 或 12310:12350" >&2
+    log "端口格式无效，请输入单端口、范围，或输入 0/off/disable 关闭，例如 12310 或 12310:12350" >&2
   done
 }
 
@@ -1560,9 +1620,10 @@ change_ports_menu() {
     log "端口设置"
     log "1. 重新随机推荐端口"
     log "2. 手动自定义端口"
-    log "3. 设置 TUIC / Hysteria2 端口跳跃"
+    log "3. 设置 TUIC 端口跳跃"
+    log "4. 设置 Hysteria2 端口跳跃"
     log "0. 返回上层"
-    printf '请选择 [0-3] (默认 1): '
+    printf '请选择 [0-4] (默认 1): '
     read -r action || exit 1
     case "${action:-1}" in
       1)
@@ -1594,13 +1655,22 @@ change_ports_menu() {
         break
         ;;
       3)
-        TUIC_HOP_PORTS="$(prompt_hop_ports 'TUIC v5 跳跃端口(单端口或范围)' "$TUIC_HOP_PORTS")"
-        HY2_HOP_PORTS="$(prompt_hop_ports 'Hysteria2 跳跃端口(单端口或范围)' "$HY2_HOP_PORTS")"
+        TUIC_HOP_PORTS="$(prompt_hop_ports 'TUIC v5 跳跃端口(单端口/范围，0/off/disable 关闭)' "$TUIC_HOP_PORTS")"
         if is_installed; then
           apply_changes
           display_links_screen "端口已更新"
         else
-          log "TUIC / Hysteria2 跳跃端口已更新"
+          log "TUIC 跳跃端口已更新"
+        fi
+        break
+        ;;
+      4)
+        HY2_HOP_PORTS="$(prompt_hop_ports 'Hysteria2 跳跃端口(单端口/范围，0/off/disable 关闭)' "$HY2_HOP_PORTS")"
+        if is_installed; then
+          apply_changes
+          display_links_screen "端口已更新"
+        else
+          log "Hysteria2 跳跃端口已更新"
         fi
         break
         ;;
@@ -1856,21 +1926,40 @@ show_menu() {
     current_ipv6="$(local_ipv6 || true)"
     if is_installed; then
       load_or_create_env
-      current_ipv4="${LB_SERVER:-$current_ipv4}"
+    else
+      apply_saved_settings
+    fi
+    ipv4_status="$(ipv4_status_text)"
+    ipv6_status="$(ipv6_status_text)"
+    nat64_status="$(nat64_status_text)"
+    dns64_status="$(dns64_status_text)"
+    warp_status="$(warp_status_text)"
+    log "IPv4: $ipv4_status"
+    log "IPv6: $ipv6_status"
+    log "NAT64: $nat64_status"
+    log "DNS64: $dns64_status"
+    log "WARP: $warp_status"
+    log "TUIC 跳跃: $(hop_status_text "$TUIC_HOP_PORTS")"
+    log "HY2 跳跃: $(hop_status_text "$HY2_HOP_PORTS")"
+    if [ "$ipv4_status" = "无" ] && [ "$ipv6_status" = "有" ] && [ "$nat64_status" = "不可用" ] && [ "$WARP_ENABLED" != "1" ]; then
+      log "提示: 当前是 IPv6-only 且未检测到 NAT64，可选在“4. IPv4 / IPv6 / WARP 出口切换”中启用 WARP。"
+    fi
+    if is_installed; then
+      if printf '%s\n' "${LB_SERVER:-}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        current_ipv4="$LB_SERVER"
+      elif printf '%s\n' "${LB_SERVER:-}" | grep -q ':'; then
+        current_ipv6="$LB_SERVER"
+      fi
       log "安装状态: 已安装"
       log "快捷命令: sudo LB / sudo lb"
       log "Argo 状态: $(argo_mode_text)"
-      log "WARP 状态: $([ "$WARP_ENABLED" = "1" ] && printf '已启用' || printf '未启用')"
       argo_host="$(current_argo_host)"
       [ -n "$argo_host" ] && log "Argo HOST: $argo_host"
       log "本机 IPv4: ${current_ipv4:-未检测到}"
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
-      [ -n "$TUIC_HOP_PORTS" ] && log "TUIC 跳跃端口: $TUIC_HOP_PORTS"
-      [ -n "$HY2_HOP_PORTS" ] && log "HY2 跳跃端口: $HY2_HOP_PORTS"
     else
-      apply_saved_settings
       if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
         set_default_ports
       fi
