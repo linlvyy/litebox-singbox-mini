@@ -1948,41 +1948,54 @@ install_menu() {
   while :; do
     printf '\n'
     log "安装设置"
-    log "1. 使用随机推荐端口安装"
-    log "2. 自定义端口后安装"
-    log "3. 更新 Litebox 脚本"
+    log "1. 安装 Litebox"
+    log "2. 更新 Litebox 脚本"
     log "0. 返回主菜单"
-    if is_installed; then
-      printf '\n'
-      log "Litebox 当前已经安装。"
-      log "如果要重新安装，请先选择主菜单里的“8. 彻底卸载 Litebox”，再重新执行安装。"
-      log "如果只是更新脚本，请直接选择“3. 更新 Litebox 脚本”。"
-    fi
-    printf '请选择 [0-3] (默认 1): '
+    printf '请选择 [0-2] (默认 1): '
     read -r action || exit 1
     case "${action:-1}" in
       1)
         if is_installed; then
-          break
+          printf '\n'
+          log "Litebox 当前已经安装。"
+          printf '按回车返回安装菜单...'
+          read -r _ || exit 1
+          continue
         fi
-        set_default_ports
-        choose_uuid_mode
-        choose_firewall_action
-        install_all
-        break
+        while :; do
+          printf '\n'
+          log "安装方式"
+          log "1. 使用随机推荐端口安装"
+          log "2. 自定义端口后安装"
+          log "0. 返回上层"
+          printf '请选择 [0-2] (默认 1): '
+          read -r install_action || exit 1
+          case "${install_action:-1}" in
+            1)
+              set_default_ports
+              choose_uuid_mode
+              choose_firewall_action
+              install_all
+              break 2
+              ;;
+            2)
+              set_default_ports
+              change_ports_menu
+              choose_uuid_mode
+              choose_firewall_action
+              install_all
+              break 2
+              ;;
+            0)
+              break
+              ;;
+            *)
+              log "无效选择"
+              ;;
+          esac
+        done
         ;;
       2)
-        if is_installed; then
-          break
-        fi
-        set_default_ports
-        change_ports_menu
-        choose_uuid_mode
-        choose_firewall_action
-        install_all
-        break
-        ;;
-      3)
         update_script_only
         break
         ;;
