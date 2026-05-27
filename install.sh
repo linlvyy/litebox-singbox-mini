@@ -11,6 +11,8 @@ CONF="$BASE_DIR/config.json"
 ENV_FILE="$BASE_DIR/env"
 LINKS_FILE="$BASE_DIR/links.txt"
 CERT_DIR="$BASE_DIR/cert"
+SING_BOX_MARKER="$BASE_DIR/installed-by-litebox.sing-box"
+CF_MARKER="$BASE_DIR/installed-by-litebox.cloudflared"
 WARP_DIR="$BASE_DIR/warp"
 WARP_CONF="$WARP_DIR/wgcf.conf"
 WARP_SERVICE_NAME="wg-quick@wgcf"
@@ -786,6 +788,7 @@ reset_identity() {
 
 install_sing_box() {
   arch="$(arch_name)"
+  mkdir -p "$BASE_DIR"
   if is_alpine && has apk; then
     log "detected Alpine Linux, trying apk add sing-box first"
     if apk add --no-cache sing-box >/dev/null 2>&1; then
@@ -794,9 +797,14 @@ install_sing_box() {
       if [ "$found" != "$BIN" ]; then
         ln -sf "$found" "$BIN"
       fi
+      rm -f "$SING_BOX_MARKER"
       return 0
     fi
     log "apk add sing-box unavailable, falling back to upstream tarball"
+  fi
+  if [ -x "$BIN" ]; then
+    rm -f "$SING_BOX_MARKER"
+    return 0
   fi
   tmp="$(mktemp -d)"
   urls="$(release_asset_urls SagerNet/sing-box "$SING_BOX_VERSION")"
@@ -818,12 +826,17 @@ install_sing_box() {
   found="$(find "$tmp" -type f -name sing-box | head -n 1)"
   [ -n "$found" ] || die "sing-box binary not found"
   install -m 0755 "$found" "$BIN"
+  : >"$SING_BOX_MARKER"
   rm -rf "$tmp"
 }
 
 install_cloudflared() {
   [ -n "$ARGO_TOKEN" ] || [ "$ENABLE_TEMP_ARGO" = "1" ] || return 0
-  [ -x "$CLOUDFLARED_BIN" ] && return 0
+  mkdir -p "$BASE_DIR"
+  if [ -x "$CLOUDFLARED_BIN" ]; then
+    rm -f "$CF_MARKER"
+    return 0
+  fi
   arch="$(arch_name)"
   tmp="$(mktemp -d)"
   url="$(download_url cloudflare/cloudflared "linux-$arch$")"
@@ -831,6 +844,7 @@ install_cloudflared() {
   log "download cloudflared: $url"
   curl -fL "$url" -o "$tmp/cloudflared"
   install -m 0755 "$tmp/cloudflared" "$CLOUDFLARED_BIN"
+  : >"$CF_MARKER"
   rm -rf "$tmp"
 }
 
@@ -1936,7 +1950,13 @@ uninstall_all() {
   service_disable_stop litebox-argo
   service_disable_stop_best_effort "$WARP_SERVICE_NAME"
   clear_port_hops
-  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$BIN" "$CLOUDFLARED_BIN" "$RUN_LITEBOX" "$RUN_ARGO"
+  if [ -f "$SING_BOX_MARKER" ]; then
+    rm -f "$BIN"
+  fi
+  if [ -f "$CF_MARKER" ]; then
+    rm -f "$CLOUDFLARED_BIN"
+  fi
+  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$RUN_LITEBOX" "$RUN_ARGO"
   rm -rf "$BASE_DIR"
   service_reload
   log "Litebox 已彻底卸载完成。"

@@ -247,11 +247,13 @@ sudo litebox logs
 
 选择菜单中的 `8`，会彻底删除：
 
-- `sing-box`
-- `cloudflared`
 - `litebox` / `sb`
 - `systemd` 服务
 - `/etc/litebox` 下全部配置和证书
+
+只有在 Litebox 安装时由脚本亲自安装的 `sing-box` / `cloudflared`，卸载时才会删除。
+
+如果机器里原本就有用户自己安装的 `sing-box` / `cloudflared`，Litebox 卸载不会误删它们。
 
 卸载完成后会直接退出，不再保留旧配置。
 
