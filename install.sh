@@ -2089,7 +2089,7 @@ show_menu() {
       log "HY2 跳跃: $(hop_status_text "$HY2_HOP_PORTS")"
     fi
     printf '\n'
-    log "1. 安装 Litebox"
+    log "1. 安装/更新 Litebox"
     log "2. Argo 隧道设置"
     log "3. 端口设置"
     log "4. IPv4 / IPv6 / WARP 出口切换"
