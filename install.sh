@@ -1247,7 +1247,6 @@ current_argo_host() {
 
 argo_export_host() {
   [ -f "$ARGO_SERVICE" ] || return 1
-  service_is_active litebox-argo || return 1
   if [ -n "$ARGO_DOMAIN" ]; then
     printf '%s\n' "$ARGO_DOMAIN"
     return 0
@@ -1338,6 +1337,9 @@ display_links_screen() {
   title="${1:-节点信息}"
   require_installed
   load_or_create_env
+  if [ "$ENABLE_TEMP_ARGO" = "1" ] && [ -f "$ARGO_SERVICE" ] && ! extract_temp_argo_domain >/dev/null 2>&1; then
+    wait_temp_argo_domain 5 >/dev/null 2>&1 || true
+  fi
   write_links
   printf '\n'
   log "$title"
