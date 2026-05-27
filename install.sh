@@ -223,6 +223,22 @@ service_status_cmd() {
   esac
 }
 
+service_is_active() {
+  detect_init_system
+  name="$1"
+  case "$INIT_SYSTEM" in
+    systemd)
+      systemctl is-active --quiet "$name"
+      ;;
+    openrc)
+      rc-service "$name" status >/dev/null 2>&1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 show_combined_logs() {
   detect_init_system
   lines="${1:-80}"
@@ -1041,6 +1057,22 @@ current_argo_host() {
   fi
 }
 
+argo_export_host() {
+  [ -f "$ARGO_SERVICE" ] || return 1
+  service_is_active litebox-argo || return 1
+  if [ -n "$ARGO_DOMAIN" ]; then
+    printf '%s\n' "$ARGO_DOMAIN"
+    return 0
+  fi
+  if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
+    host="$(extract_temp_argo_domain)"
+    [ -n "$host" ] || return 1
+    printf '%s\n' "$host"
+    return 0
+  fi
+  return 1
+}
+
 refresh_temp_argo_links() {
   [ "$ENABLE_TEMP_ARGO" = "1" ] || return 0
   service_restart_cmd litebox-argo >/dev/null 2>&1 || true
@@ -1058,28 +1090,18 @@ write_links() {
   server="$(node_server_host)"
   vless="vless://$LB_UUID@$server:$VLESS_PORT?encryption=none&security=reality&sni=$REALITY_SNI&fp=chrome&pbk=$LB_REALITY_PUBLIC&sid=$LB_SHORT_ID&type=tcp&flow=xtls-rprx-vision#$NAME-vless-reality"
   anytls="anytls://$LB_ANYTLS_PASSWORD@$server:$ANYTLS_PORT?security=tls&sni=$TLS_SNI&insecure=1#$NAME-anytls"
-  tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1#$NAME-tuic-v5"
-  hy2="hysteria2://$LB_HY2_PASSWORD@$server:$HY2_PORT?obfs=salamander&obfs-password=$LB_HY2_OBFS&sni=$TLS_SNI&insecure=1#$NAME-hysteria2"
-
-  if [ -n "$ARGO_DOMAIN" ]; then
-    vmess_add="$ARGO_DOMAIN"
-    vmess_port="443"
-    vmess_host="$ARGO_DOMAIN"
-    vmess_sni="$ARGO_DOMAIN"
-  elif [ "$ENABLE_TEMP_ARGO" = "1" ]; then
-    temp_argo_domain="$(extract_temp_argo_domain)"
-    vmess_add="saas.sin.fan"
-    vmess_port="8443"
-    vmess_host="${temp_argo_domain:-<your-trycloudflare-domain>}"
-    vmess_sni="$vmess_host"
+  if [ -n "$TUIC_HOP_PORTS" ]; then
+    tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1&port_hopping=$TUIC_HOP_PORTS#$NAME-tuic-v5"
   else
-    vmess_add="<argo-not-enabled>"
-    vmess_port="443"
-    vmess_host="<argo-not-enabled>"
-    vmess_sni="$vmess_host"
+    tuic="tuic://$LB_UUID:$LB_TUIC_PASSWORD@$server:$TUIC_PORT?congestion_control=bbr&alpn=h3&allow_insecure=1#$NAME-tuic-v5"
+  fi
+  if [ -n "$HY2_HOP_PORTS" ]; then
+    hy2_export_hop="$(printf '%s' "$HY2_HOP_PORTS" | tr ':' '-')"
+    hy2="hysteria2://$LB_HY2_PASSWORD@$server:$HY2_PORT?obfs=salamander&obfs-password=$LB_HY2_OBFS&sni=$TLS_SNI&insecure=1&mport=$hy2_export_hop#$NAME-hysteria2"
+  else
+    hy2="hysteria2://$LB_HY2_PASSWORD@$server:$HY2_PORT?obfs=salamander&obfs-password=$LB_HY2_OBFS&sni=$TLS_SNI&insecure=1#$NAME-hysteria2"
   fi
   vmess_path="${VMESS_WS_PATH#/}"
-  vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"%s","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s","fp":"chrome"}' "$NAME" "$vmess_add" "$vmess_port" "$LB_UUID" "$vmess_host" "$vmess_path" "$vmess_sni" | b64_nowrap)"
 
   cat >"$LINKS_FILE" <<EOF
 VLESS-REALITY:
@@ -1094,9 +1116,6 @@ $tuic
 Hysteria2:
 $hy2
 
-VMess-WS-Argo:
-vmess://$vmess_json
-
 Server: $server
 UUID: $LB_UUID
 Reality public key: $LB_REALITY_PUBLIC
@@ -1104,7 +1123,44 @@ Reality short id: $LB_SHORT_ID
 Outbound mode: $OUTBOUND_MODE
 Shortcut: sudo LB
 EOF
+  if argo_host="$(argo_export_host)"; then
+    if [ -n "$ARGO_DOMAIN" ]; then
+      vmess_add="$ARGO_DOMAIN"
+      vmess_port="443"
+      vmess_host="$ARGO_DOMAIN"
+      vmess_sni="$ARGO_DOMAIN"
+    else
+      vmess_add="saas.sin.fan"
+      vmess_port="8443"
+      vmess_host="$argo_host"
+      vmess_sni="$argo_host"
+    fi
+    vmess_json="$(printf '{"v":"2","ps":"%s-vmess-ws-argo","add":"%s","port":"%s","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s","fp":"chrome"}' "$NAME" "$vmess_add" "$vmess_port" "$LB_UUID" "$vmess_host" "$vmess_path" "$vmess_sni" | b64_nowrap)"
+    cat >>"$LINKS_FILE" <<EOF
+
+VMess-WS-Argo:
+vmess://$vmess_json
+EOF
+  fi
   chmod 600 "$LINKS_FILE"
+}
+
+display_links_screen() {
+  title="${1:-节点信息}"
+  require_installed
+  load_or_create_env
+  write_links
+  printf '\n'
+  log "$title"
+  printf '\n'
+  cat "$LINKS_FILE"
+  if [ "$ENABLE_TEMP_ARGO" = "1" ] && ! argo_export_host >/dev/null 2>&1; then
+    printf '\n'
+    log "临时 Argo 提示:"
+    log "请用 'sudo litebox logs 80'、'sudo LB logs 80' 或 'sudo lb logs 80' 查看 trycloudflare.com 域名。"
+  fi
+  printf '\n按回车返回主菜单...'
+  read -r _ || exit 1
 }
 
 enable_services() {
@@ -1204,13 +1260,15 @@ clear_port_hops() {
   if has iptables; then
     oldifs="$IFS"
     IFS=','
-    for port in $TUIC_HOP_PORTS; do
+    expanded_tuic_hop_ports="$(expand_hop_ports "$TUIC_HOP_PORTS")"
+    for port in $expanded_tuic_hop_ports; do
       [ -n "$port" ] || continue
       while iptables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1; do
         iptables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || break
       done
     done
-    for port in $HY2_HOP_PORTS; do
+    expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
+    for port in $expanded_hy2_hop_ports; do
       [ -n "$port" ] || continue
       while iptables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1; do
         iptables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || break
@@ -1221,13 +1279,15 @@ clear_port_hops() {
   if has ip6tables; then
     oldifs="$IFS"
     IFS=','
-    for port in $TUIC_HOP_PORTS; do
+    expanded_tuic_hop_ports="$(expand_hop_ports "$TUIC_HOP_PORTS")"
+    for port in $expanded_tuic_hop_ports; do
       [ -n "$port" ] || continue
       while ip6tables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1; do
         ip6tables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || break
       done
     done
-    for port in $HY2_HOP_PORTS; do
+    expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
+    for port in $expanded_hy2_hop_ports; do
       [ -n "$port" ] || continue
       while ip6tables -t nat -C PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1; do
         ip6tables -t nat -D PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || break
@@ -1242,11 +1302,13 @@ apply_port_hops() {
   if has iptables; then
     oldifs="$IFS"
     IFS=','
-    for port in $TUIC_HOP_PORTS; do
+    expanded_tuic_hop_ports="$(expand_hop_ports "$TUIC_HOP_PORTS")"
+    for port in $expanded_tuic_hop_ports; do
       [ -n "$port" ] || continue
       iptables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
     done
-    for port in $HY2_HOP_PORTS; do
+    expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
+    for port in $expanded_hy2_hop_ports; do
       [ -n "$port" ] || continue
       iptables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
     done
@@ -1255,11 +1317,13 @@ apply_port_hops() {
   if has ip6tables; then
     oldifs="$IFS"
     IFS=','
-    for port in $TUIC_HOP_PORTS; do
+    expanded_tuic_hop_ports="$(expand_hop_ports "$TUIC_HOP_PORTS")"
+    for port in $expanded_tuic_hop_ports; do
       [ -n "$port" ] || continue
       ip6tables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
     done
-    for port in $HY2_HOP_PORTS; do
+    expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
+    for port in $expanded_hy2_hop_ports; do
       [ -n "$port" ] || continue
       ip6tables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
     done
@@ -1277,13 +1341,69 @@ hop_ports_valid() {
       IFS="$oldifs"
       return 1
     }
-    port_valid "$port" || {
-      IFS="$oldifs"
-      return 1
-    }
+    case "$port" in
+      *:*)
+        start_port="${port%%:*}"
+        end_port="${port##*:}"
+        port_valid "$start_port" || {
+          IFS="$oldifs"
+          return 1
+        }
+        port_valid "$end_port" || {
+          IFS="$oldifs"
+          return 1
+        }
+        [ "$start_port" -le "$end_port" ] || {
+          IFS="$oldifs"
+          return 1
+        }
+        ;;
+      *)
+        port_valid "$port" || {
+          IFS="$oldifs"
+          return 1
+        }
+        ;;
+    esac
   done
   IFS="$oldifs"
   return 0
+}
+
+expand_hop_ports() {
+  input="$(printf '%s' "$1" | tr '，' ',')"
+  [ -z "$input" ] && return 0
+  oldifs="$IFS"
+  first_item=1
+  IFS=','
+  for port in $input; do
+    [ -n "$port" ] || continue
+    case "$port" in
+      *:*)
+        start_port="${port%%:*}"
+        end_port="${port##*:}"
+        current_port="$start_port"
+        while [ "$current_port" -le "$end_port" ]; do
+          if [ "$first_item" -eq 1 ]; then
+            printf '%s' "$current_port"
+            first_item=0
+          else
+            printf ',%s' "$current_port"
+          fi
+          current_port=$((current_port + 1))
+        done
+        ;;
+      *)
+        if [ "$first_item" -eq 1 ]; then
+          printf '%s' "$port"
+          first_item=0
+        else
+          printf ',%s' "$port"
+        fi
+        ;;
+    esac
+  done
+  IFS="$oldifs"
 }
 
 prompt_hop_ports() {
@@ -1298,7 +1418,7 @@ prompt_hop_ports() {
       printf '%s\n' "$value"
       return
     fi
-    log "端口格式无效，请输入逗号分隔的端口列表，例如 30000,30001" >&2
+    log "端口格式无效，请输入单端口或范围，例如 12310 或 12310:12350" >&2
   done
 }
 
@@ -1450,7 +1570,11 @@ change_ports_menu() {
         if is_installed; then
           apply_changes
         fi
-        log "已切换为随机推荐端口"
+        if is_installed; then
+          display_links_screen "端口已更新"
+        else
+          log "已切换为随机推荐端口"
+        fi
         break
         ;;
       2)
@@ -1462,16 +1586,22 @@ change_ports_menu() {
         if is_installed; then
           apply_changes
         fi
-        log "端口已更新"
+        if is_installed; then
+          display_links_screen "端口已更新"
+        else
+          log "端口已更新"
+        fi
         break
         ;;
       3)
-        TUIC_HOP_PORTS="$(prompt_hop_ports 'TUIC v5 跳跃端口(逗号分隔)' "$TUIC_HOP_PORTS")"
-        HY2_HOP_PORTS="$(prompt_hop_ports 'Hysteria2 跳跃端口(逗号分隔)' "$HY2_HOP_PORTS")"
+        TUIC_HOP_PORTS="$(prompt_hop_ports 'TUIC v5 跳跃端口(单端口或范围)' "$TUIC_HOP_PORTS")"
+        HY2_HOP_PORTS="$(prompt_hop_ports 'Hysteria2 跳跃端口(单端口或范围)' "$HY2_HOP_PORTS")"
         if is_installed; then
           apply_changes
+          display_links_screen "端口已更新"
+        else
+          log "TUIC / Hysteria2 跳跃端口已更新"
         fi
-        log "TUIC / Hysteria2 跳跃端口已更新"
         break
         ;;
       0) break ;;
@@ -1607,17 +1737,7 @@ argo_menu() {
 }
 
 show_links() {
-  require_installed
-  load_or_create_env
-  write_links
-  cat "$LINKS_FILE"
-  if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
-    printf '\n'
-    log "临时 Argo 提示:"
-    log "请用 'sudo litebox logs 80'、'sudo LB logs 80' 或 'sudo lb logs 80' 查看 trycloudflare.com 域名。"
-  fi
-  printf '\n按回车返回主菜单...'
-  read -r _ || exit 1
+  display_links_screen "节点信息"
 }
 
 show_logs() {
@@ -1814,8 +1934,7 @@ install_all() {
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     refresh_temp_argo_links || true
   fi
-  log "安装完成，节点信息文件: $LINKS_FILE"
-  cat "$LINKS_FILE"
+  display_links_screen "安装完成"
 }
 
 default_action() {
