@@ -1948,7 +1948,7 @@ install_menu() {
   while :; do
     printf '\n'
     log "安装设置"
-    log "1. 安装/更新 Litebox"
+    log "1. 安装 Litebox"
     log "2. 更新 Litebox 脚本"
     log "0. 返回主菜单"
     printf '请选择 [0-2] (默认 1): '
