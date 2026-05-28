@@ -586,6 +586,21 @@ route_rule_url() {
   esac
 }
 
+route_rule_domains() {
+  case "$1" in
+    openai) printf '%s\n' openai.com chatgpt.com sora.com oaistatic.com oaiusercontent.com ;;
+    claude) printf '%s\n' claude.ai anthropic.com anthropiccdn.com ;;
+    gemini) printf '%s\n' gemini.google.com generativelanguage.googleapis.com deepmind.google bard.google.com ;;
+    google) printf '%s\n' google.com googleapis.com gstatic.com ggpht.com googleusercontent.com ;;
+    tiktok) printf '%s\n' tiktok.com tiktokv.com tiktokcdn.com byteoversea.com ibytedtos.com ;;
+    twitter) printf '%s\n' x.com twitter.com twimg.com t.co ;;
+    youtube) printf '%s\n' youtube.com youtu.be ytimg.com googlevideo.com youtubei.googleapis.com ;;
+    netflix) printf '%s\n' netflix.com nflxvideo.net nflximg.net nflxext.com nflxso.net ;;
+    telegram) printf '%s\n' telegram.org t.me telegram.me telegra.ph tdesktop.com ;;
+    *) return 1 ;;
+  esac
+}
+
 get_route_rule_outbound() {
   case "$1" in
     openai) printf '%s\n' "$ROUTE_OPENAI_OUTBOUND" ;;
@@ -789,7 +804,7 @@ warp_auto_register() {
   WARP_IPV4="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"addresses":{"v4":"\([^"]*\)","v6":"\([^"]*\)".*/\1/p' | head -n 1)"
   WARP_IPV6="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"addresses":{"v4":"\([^"]*\)","v6":"\([^"]*\)".*/\2/p' | head -n 1)"
   WARP_PEER_PUBLIC_KEY="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"peers":\[{"public_key":"\([^"]*\)".*/\1/p' | head -n 1)"
-  WARP_ENDPOINT_HOST="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"endpoint":{"v4":"[^"]*","v6":"[^"]*","host":"\([^"]*\)".*/\1/p' | head -n 1)"
+  WARP_ENDPOINT_HOST="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"endpoint":{"v4":"[^"]*","v6":"[^"]*","host":"\([^":]*\).*/\1/p' | head -n 1)"
   [ -n "$WARP_IPV4" ] || return 1
   [ -n "$WARP_IPV6" ] || return 1
   [ -n "$WARP_PEER_PUBLIC_KEY" ] || return 1
@@ -813,8 +828,8 @@ load_warp_from_conf() {
   [ -n "$conf_endpoint" ] || return 1
   conf_ipv4="$(printf '%s' "$conf_address_line" | cut -d',' -f1 | sed 's#/32##' | xargs)"
   conf_ipv6="$(printf '%s' "$conf_address_line" | cut -d',' -f2 | sed 's#/128##' | xargs)"
-  conf_endpoint_host="${conf_endpoint%:*}"
-  conf_endpoint_port="${conf_endpoint##*:}"
+  conf_endpoint_host="$(printf '%s' "$conf_endpoint" | awk -F: '{print $1}')"
+  conf_endpoint_port="$(printf '%s' "$conf_endpoint" | awk -F: '{print $NF}')"
   [ -n "$conf_ipv4" ] || return 1
   [ -n "$conf_ipv6" ] || return 1
   port_valid "$conf_endpoint_port" || return 1
@@ -1284,8 +1299,6 @@ write_config() {
   direct_domain_resolver=""
   warp_outbound_block=""
   proxy_outbound_block=""
-  route_rule_set_block=""
-  split_route_rules_block=""
   route_rules_block=""
   final_outbound="direct"
   case "$OUTBOUND_MODE" in
@@ -1368,23 +1381,26 @@ EOF
         ;;
     esac
   fi
+  split_route_rules_block=""
   for rule_tag in $(route_rule_tags); do
     rule_outbound="$(get_route_rule_outbound "$rule_tag")"
     [ -n "$rule_outbound" ] || continue
     split_outbound_available "$rule_outbound" || die "$(route_rule_label "$rule_tag") 分流依赖的出口不可用: $(outbound_tag_text "$rule_outbound")"
-    rule_url="$(route_rule_url "$rule_tag")"
-    route_rule_set_block="${route_rule_set_block}
-      {
-        \"tag\": \"$rule_tag\",
-        \"type\": \"remote\",
-        \"format\": \"binary\",
-        \"url\": \"$rule_url\",
-        \"download_detour\": \"direct\"
-      },"
+    rule_domains_json=""
+    while IFS= read -r rule_domain; do
+      [ -n "$rule_domain" ] || continue
+      if [ -n "$rule_domains_json" ]; then
+        rule_domains_json="$rule_domains_json, "
+      fi
+      rule_domains_json="$rule_domains_json\"$rule_domain\""
+    done <<EOF
+$(route_rule_domains "$rule_tag")
+EOF
+    [ -n "$rule_domains_json" ] || continue
     split_route_rules_block="${split_route_rules_block}
       {
         \"action\": \"route\",
-        \"rule_set\": [\"$rule_tag\"],
+        \"domain_suffix\": [$rule_domains_json],
         \"outbound\": \"$rule_outbound\"
       },"
   done
@@ -1396,27 +1412,14 @@ EOF
     split_route_rules_block="$(printf '%s\n' "$split_route_rules_block" | sed '$ s/,$//')"
     route_rules_block="${route_rules_block}
 $split_route_rules_block"
-  else
-    route_rules_block="$(printf '%s\n' "$route_rules_block" | sed '$ s/,$//')"
   fi
-  if [ -n "$route_rule_set_block" ]; then
-    route_rule_set_block="$(printf '%s\n' "$route_rule_set_block" | sed '$ s/,$//')"
-    route_rule_set_block="$(cat <<EOF
+  route_rules_only_block="$(printf '%s\n' "$route_rules_block" | sed '$ s/,$//')"
+  route_rules_block="$(cat <<EOF
 ,
-    "rule_set": [$route_rule_set_block
-    ],
-    "rules": [$route_rules_block
+    "rules": [$route_rules_only_block
     ]
 EOF
 )"
-  else
-    route_rule_set_block="$(cat <<EOF
-,
-    "rules": [$route_rules_block
-    ]
-EOF
-)"
-  fi
   cat >"$CONF" <<EOF
 {
   "log": {
@@ -1545,7 +1548,7 @@ $dns_block
     }$warp_outbound_block$proxy_outbound_block
   ],
   "route": {
-    "auto_detect_interface": true$route_rule_set_block,
+    "auto_detect_interface": true$route_rules_block,
     "final": "$final_outbound"
   }
 }
