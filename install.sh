@@ -1751,11 +1751,10 @@ warp_manage_menu() {
     log "WARP 管理"
     log "当前状态: $(warp_status_text)"
     log "1. 安装或启用 WARP"
-    log "2. WARP IPv4 出口"
-    log "3. 关闭 WARP"
-    log "4. 删除 WARP"
+    log "2. 关闭 WARP"
+    log "3. 删除 WARP"
     log "0. 返回上层"
-    printf '请选择 [0-4]: '
+    printf '请选择 [0-3]: '
     read -r action || exit 1
     case "$action" in
       1)
@@ -1771,15 +1770,6 @@ warp_manage_menu() {
         break
         ;;
       2)
-        warp_ready || die "WARP IPv4 出口未配置，请先选择“1. 安装或启用 WARP”"
-        OUTBOUND_MODE="warp_ipv4"
-        if is_installed; then
-          apply_changes
-        fi
-        log "出口模式已切换为: $(outbound_mode_text)"
-        break
-        ;;
-      3)
         log "正在关闭 WARP..."
         disable_warp
         if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
@@ -1794,7 +1784,7 @@ warp_manage_menu() {
         log "WARP 已关闭"
         break
         ;;
-      4)
+      3)
         log "正在删除 WARP 配置..."
         delete_warp
         if is_installed; then
@@ -1827,9 +1817,10 @@ switch_outbound_menu() {
     log "3. IPv6 优先"
     log "4. 仅 IPv4"
     log "5. 仅 IPv6"
-    log "6. WARP 管理"
+    log "6. WARP IPv4 出口"
+    log "7. WARP 管理"
     log "0. 返回上层"
-    printf '请选择 [0-6]: '
+    printf '请选择 [0-7]: '
     read -r action || exit 1
     case "$action" in
       1) OUTBOUND_MODE="auto" ;;
@@ -1838,13 +1829,17 @@ switch_outbound_menu() {
       4) OUTBOUND_MODE="ipv4_only" ;;
       5) OUTBOUND_MODE="ipv6_only" ;;
       6)
+        warp_ready || die "WARP IPv4 出口未配置，请先进入“7. WARP 管理”安装或启用 WARP"
+        OUTBOUND_MODE="warp_ipv4"
+        ;;
+      7)
         warp_manage_menu
         continue
         ;;
       0) break ;;
       *) log "无效选择"; continue ;;
     esac
-    if [ "$action" != "0" ] && [ "$action" != "6" ]; then
+    if [ "$action" != "0" ] && [ "$action" != "7" ]; then
       if is_installed; then
         apply_changes
       fi
@@ -2281,7 +2276,7 @@ show_menu() {
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
-      log "跳跃: tuic=$(hop_status_text "$TUIC_HOP_PORTS")   hy2=$(hop_status_text "$HY2_HOP_PORTS")"
+      log "端口跳跃: tuic=$(hop_status_text "$TUIC_HOP_PORTS")   hy2=$(hop_status_text "$HY2_HOP_PORTS")"
     else
       if [ -z "${VLESS_PORT:-}" ] || [ -z "${ANYTLS_PORT:-}" ] || [ -z "${TUIC_PORT:-}" ] || [ -z "${HY2_PORT:-}" ] || [ -z "${VMESS_LOCAL_PORT:-}" ]; then
         set_default_ports
@@ -2295,7 +2290,7 @@ show_menu() {
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
       log "默认端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
-      log "跳跃: tuic=$(hop_status_text "$TUIC_HOP_PORTS")   hy2=$(hop_status_text "$HY2_HOP_PORTS")"
+      log "端口跳跃: tuic=$(hop_status_text "$TUIC_HOP_PORTS")   hy2=$(hop_status_text "$HY2_HOP_PORTS")"
     fi
     printf '\n'
     log "1. 安装/更新 Litebox"
