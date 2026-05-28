@@ -60,20 +60,6 @@ WARP_ENDPOINT_HOST="${WARP_ENDPOINT_HOST:-engage.cloudflareclient.com}"
 WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-2408}"
 WARP_ENABLED="${WARP_ENABLED:-0}"
 WARP_CLIENT_VERSION="${WARP_CLIENT_VERSION:-a-6.11-2223}"
-PROXY_OUTBOUND_TYPE="${PROXY_OUTBOUND_TYPE:-}"
-PROXY_OUTBOUND_SERVER="${PROXY_OUTBOUND_SERVER:-}"
-PROXY_OUTBOUND_PORT="${PROXY_OUTBOUND_PORT:-}"
-PROXY_OUTBOUND_USERNAME="${PROXY_OUTBOUND_USERNAME:-}"
-PROXY_OUTBOUND_PASSWORD="${PROXY_OUTBOUND_PASSWORD:-}"
-ROUTE_OPENAI_OUTBOUND="${ROUTE_OPENAI_OUTBOUND:-}"
-ROUTE_CLAUDE_OUTBOUND="${ROUTE_CLAUDE_OUTBOUND:-}"
-ROUTE_GEMINI_OUTBOUND="${ROUTE_GEMINI_OUTBOUND:-}"
-ROUTE_GOOGLE_OUTBOUND="${ROUTE_GOOGLE_OUTBOUND:-}"
-ROUTE_TIKTOK_OUTBOUND="${ROUTE_TIKTOK_OUTBOUND:-}"
-ROUTE_TWITTER_OUTBOUND="${ROUTE_TWITTER_OUTBOUND:-}"
-ROUTE_YOUTUBE_OUTBOUND="${ROUTE_YOUTUBE_OUTBOUND:-}"
-ROUTE_NETFLIX_OUTBOUND="${ROUTE_NETFLIX_OUTBOUND:-}"
-ROUTE_TELEGRAM_OUTBOUND="${ROUTE_TELEGRAM_OUTBOUND:-}"
 
 log() { printf '%s\n' "$*"; }
 die() { log "error: $*" >&2; exit 1; }
@@ -483,7 +469,11 @@ vendor_short_name() {
 }
 
 public_country_code() {
-  for url in https://ipapi.co/country/ https://ifconfig.co/country-iso; do
+  for url in \
+    https://ipapi.co/country/ \
+    https://ifconfig.co/country-iso \
+    https://ipinfo.io/country \
+    https://ifconfig.me/country_code; do
     code="$(curl -fsSL --connect-timeout 3 "$url" 2>/dev/null | tr -d '\r\n' || true)"
     printf '%s\n' "$code" | grep -Eq '^[A-Za-z]{2}$' && {
       printf '%s\n' "$(printf '%s' "$code" | tr '[:lower:]' '[:upper:]')"
@@ -550,245 +540,6 @@ hop_ports_count() {
       printf '1\n'
       ;;
   esac
-}
-
-route_rule_tags() {
-  printf '%s\n' openai claude gemini google tiktok twitter youtube netflix telegram
-}
-
-route_rule_label() {
-  case "$1" in
-    openai) printf 'OpenAI' ;;
-    claude) printf 'Claude' ;;
-    gemini) printf 'Gemini' ;;
-    google) printf 'Google' ;;
-    tiktok) printf 'TikTok' ;;
-    twitter) printf 'Twitter / X' ;;
-    youtube) printf 'YouTube' ;;
-    netflix) printf 'Netflix' ;;
-    telegram) printf 'Telegram' ;;
-    *) printf '%s' "$1" ;;
-  esac
-}
-
-route_rule_url() {
-  case "$1" in
-    openai) printf 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/openai.srs\n' ;;
-    claude) printf 'https://main.ssss.nyc.mn/claude.srs\n' ;;
-    gemini) printf 'https://main.ssss.nyc.mn/gemini.srs\n' ;;
-    google) printf 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/google.srs\n' ;;
-    tiktok) printf 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/tiktok.srs\n' ;;
-    twitter) printf 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/twitter.srs\n' ;;
-    youtube) printf 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/youtube.srs\n' ;;
-    netflix) printf 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/netflix.srs\n' ;;
-    telegram) printf 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/telegram.srs\n' ;;
-    *) return 1 ;;
-  esac
-}
-
-route_rule_domains() {
-  case "$1" in
-    openai) printf '%s\n' openai.com chatgpt.com sora.com oaistatic.com oaiusercontent.com ;;
-    claude) printf '%s\n' claude.ai anthropic.com anthropiccdn.com ;;
-    gemini) printf '%s\n' gemini.google.com generativelanguage.googleapis.com deepmind.google bard.google.com ;;
-    google) printf '%s\n' google.com googleapis.com gstatic.com ggpht.com googleusercontent.com ;;
-    tiktok) printf '%s\n' tiktok.com tiktokv.com tiktokcdn.com byteoversea.com ibytedtos.com ;;
-    twitter) printf '%s\n' x.com twitter.com twimg.com t.co ;;
-    youtube) printf '%s\n' youtube.com youtu.be ytimg.com googlevideo.com youtubei.googleapis.com ;;
-    netflix) printf '%s\n' netflix.com nflxvideo.net nflximg.net nflxext.com nflxso.net ;;
-    telegram) printf '%s\n' telegram.org t.me telegram.me telegra.ph tdesktop.com ;;
-    *) return 1 ;;
-  esac
-}
-
-get_route_rule_outbound() {
-  case "$1" in
-    openai) printf '%s\n' "$ROUTE_OPENAI_OUTBOUND" ;;
-    claude) printf '%s\n' "$ROUTE_CLAUDE_OUTBOUND" ;;
-    gemini) printf '%s\n' "$ROUTE_GEMINI_OUTBOUND" ;;
-    google) printf '%s\n' "$ROUTE_GOOGLE_OUTBOUND" ;;
-    tiktok) printf '%s\n' "$ROUTE_TIKTOK_OUTBOUND" ;;
-    twitter) printf '%s\n' "$ROUTE_TWITTER_OUTBOUND" ;;
-    youtube) printf '%s\n' "$ROUTE_YOUTUBE_OUTBOUND" ;;
-    netflix) printf '%s\n' "$ROUTE_NETFLIX_OUTBOUND" ;;
-    telegram) printf '%s\n' "$ROUTE_TELEGRAM_OUTBOUND" ;;
-    *) return 1 ;;
-  esac
-}
-
-set_route_rule_outbound() {
-  case "$1" in
-    openai) ROUTE_OPENAI_OUTBOUND="$2" ;;
-    claude) ROUTE_CLAUDE_OUTBOUND="$2" ;;
-    gemini) ROUTE_GEMINI_OUTBOUND="$2" ;;
-    google) ROUTE_GOOGLE_OUTBOUND="$2" ;;
-    tiktok) ROUTE_TIKTOK_OUTBOUND="$2" ;;
-    twitter) ROUTE_TWITTER_OUTBOUND="$2" ;;
-    youtube) ROUTE_YOUTUBE_OUTBOUND="$2" ;;
-    netflix) ROUTE_NETFLIX_OUTBOUND="$2" ;;
-    telegram) ROUTE_TELEGRAM_OUTBOUND="$2" ;;
-    *) return 1 ;;
-  esac
-}
-
-clear_route_rule_outbound() {
-  set_route_rule_outbound "$1" ""
-}
-
-outbound_tag_text() {
-  case "$1" in
-    warp) printf 'WARP IPv4 出口' ;;
-    proxy-out) printf 'SOCKS5 / HTTP 出口' ;;
-    direct) printf '直连' ;;
-    *) printf '%s' "$1" ;;
-  esac
-}
-
-proxy_outbound_ready() {
-  [ -n "$PROXY_OUTBOUND_TYPE" ] &&
-  [ -n "$PROXY_OUTBOUND_SERVER" ] &&
-  [ -n "$PROXY_OUTBOUND_PORT" ]
-}
-
-proxy_outbound_summary() {
-  if proxy_outbound_ready; then
-    printf '%s://%s:%s\n' "$PROXY_OUTBOUND_TYPE" "$PROXY_OUTBOUND_SERVER" "$PROXY_OUTBOUND_PORT"
-  else
-    printf '未配置\n'
-  fi
-}
-
-split_rule_count() {
-  count=0
-  for tag in $(route_rule_tags); do
-    if [ -n "$(get_route_rule_outbound "$tag")" ]; then
-      count=$((count + 1))
-    fi
-  done
-  printf '%s\n' "$count"
-}
-
-split_rules_summary() {
-  found=0
-  for tag in $(route_rule_tags); do
-    outbound="$(get_route_rule_outbound "$tag")"
-    [ -n "$outbound" ] || continue
-    if [ "$found" -eq 1 ]; then
-      printf ' | '
-    fi
-    printf '%s->%s' "$(route_rule_label "$tag")" "$(outbound_tag_text "$outbound")"
-    found=1
-  done
-  [ "$found" -eq 1 ] || printf '未配置'
-  printf '\n'
-}
-
-split_outbound_available() {
-  case "$1" in
-    warp) warp_ready ;;
-    proxy-out) proxy_outbound_ready ;;
-    direct) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-split_rules_using_outbound() {
-  target="$1"
-  found=0
-  for tag in $(route_rule_tags); do
-    if [ "$(get_route_rule_outbound "$tag")" = "$target" ]; then
-      if [ "$found" -eq 1 ]; then
-        printf ', '
-      fi
-      printf '%s' "$(route_rule_label "$tag")"
-      found=1
-    fi
-  done
-  [ "$found" -eq 1 ] || return 1
-}
-
-clear_split_rules_by_outbound() {
-  target="$1"
-  for tag in $(route_rule_tags); do
-    if [ "$(get_route_rule_outbound "$tag")" = "$target" ]; then
-      clear_route_rule_outbound "$tag"
-    fi
-  done
-}
-
-available_split_outbounds() {
-  if warp_ready; then
-    printf 'warp|WARP IPv4 出口\n'
-  fi
-  if proxy_outbound_ready; then
-    printf 'proxy-out|SOCKS5 / HTTP 出口\n'
-  fi
-}
-
-parse_proxy_url() {
-  proxy_url="$1"
-  case "$proxy_url" in
-    socks://*|socks5://*)
-      proxy_type="socks"
-      proxy_rest="${proxy_url#*://}"
-      ;;
-    http://*)
-      proxy_type="http"
-      proxy_rest="${proxy_url#*://}"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-
-  proxy_auth=""
-  proxy_hostport="$proxy_rest"
-  case "$proxy_rest" in
-    *@*)
-      proxy_auth="${proxy_rest%%@*}"
-      proxy_hostport="${proxy_rest#*@}"
-      ;;
-  esac
-
-  case "$proxy_hostport" in
-    \[*\]:*)
-      proxy_host="${proxy_hostport%%]*}"
-      proxy_host="${proxy_host#[}"
-      proxy_port="${proxy_hostport##*:}"
-      ;;
-    *:*)
-      proxy_host="${proxy_hostport%:*}"
-      proxy_port="${proxy_hostport##*:}"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-
-  [ -n "$proxy_host" ] || return 1
-  port_valid "$proxy_port" || return 1
-
-  proxy_user=""
-  proxy_pass=""
-  case "$proxy_auth" in
-    *:*)
-      proxy_user="${proxy_auth%%:*}"
-      proxy_pass="${proxy_auth#*:}"
-      ;;
-    "")
-      true
-      ;;
-    *)
-      proxy_user="$proxy_auth"
-      ;;
-  esac
-
-  PROXY_OUTBOUND_TYPE="$proxy_type"
-  PROXY_OUTBOUND_SERVER="$proxy_host"
-  PROXY_OUTBOUND_PORT="$proxy_port"
-  PROXY_OUTBOUND_USERNAME="$proxy_user"
-  PROXY_OUTBOUND_PASSWORD="$proxy_pass"
-  return 0
 }
 
 warp_auto_register() {
@@ -1021,20 +772,6 @@ apply_saved_settings() {
   WARP_ENDPOINT_HOST="${WARP_ENDPOINT_HOST:-${LB_WARP_ENDPOINT_HOST:-engage.cloudflareclient.com}}"
   WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-${LB_WARP_ENDPOINT_PORT:-2408}}"
   WARP_ENABLED="${WARP_ENABLED:-${LB_WARP_ENABLED:-0}}"
-  PROXY_OUTBOUND_TYPE="${PROXY_OUTBOUND_TYPE:-${LB_PROXY_OUTBOUND_TYPE:-}}"
-  PROXY_OUTBOUND_SERVER="${PROXY_OUTBOUND_SERVER:-${LB_PROXY_OUTBOUND_SERVER:-}}"
-  PROXY_OUTBOUND_PORT="${PROXY_OUTBOUND_PORT:-${LB_PROXY_OUTBOUND_PORT:-}}"
-  PROXY_OUTBOUND_USERNAME="${PROXY_OUTBOUND_USERNAME:-${LB_PROXY_OUTBOUND_USERNAME:-}}"
-  PROXY_OUTBOUND_PASSWORD="${PROXY_OUTBOUND_PASSWORD:-${LB_PROXY_OUTBOUND_PASSWORD:-}}"
-  ROUTE_OPENAI_OUTBOUND="${ROUTE_OPENAI_OUTBOUND:-${LB_ROUTE_OPENAI_OUTBOUND:-}}"
-  ROUTE_CLAUDE_OUTBOUND="${ROUTE_CLAUDE_OUTBOUND:-${LB_ROUTE_CLAUDE_OUTBOUND:-}}"
-  ROUTE_GEMINI_OUTBOUND="${ROUTE_GEMINI_OUTBOUND:-${LB_ROUTE_GEMINI_OUTBOUND:-}}"
-  ROUTE_GOOGLE_OUTBOUND="${ROUTE_GOOGLE_OUTBOUND:-${LB_ROUTE_GOOGLE_OUTBOUND:-}}"
-  ROUTE_TIKTOK_OUTBOUND="${ROUTE_TIKTOK_OUTBOUND:-${LB_ROUTE_TIKTOK_OUTBOUND:-}}"
-  ROUTE_TWITTER_OUTBOUND="${ROUTE_TWITTER_OUTBOUND:-${LB_ROUTE_TWITTER_OUTBOUND:-}}"
-  ROUTE_YOUTUBE_OUTBOUND="${ROUTE_YOUTUBE_OUTBOUND:-${LB_ROUTE_YOUTUBE_OUTBOUND:-}}"
-  ROUTE_NETFLIX_OUTBOUND="${ROUTE_NETFLIX_OUTBOUND:-${LB_ROUTE_NETFLIX_OUTBOUND:-}}"
-  ROUTE_TELEGRAM_OUTBOUND="${ROUTE_TELEGRAM_OUTBOUND:-${LB_ROUTE_TELEGRAM_OUTBOUND:-}}"
 }
 
 save_env() {
@@ -1071,20 +808,6 @@ LB_WARP_PEER_PUBLIC_KEY='$WARP_PEER_PUBLIC_KEY'
 LB_WARP_ENDPOINT_HOST='$WARP_ENDPOINT_HOST'
 LB_WARP_ENDPOINT_PORT='$WARP_ENDPOINT_PORT'
 LB_WARP_ENABLED='$WARP_ENABLED'
-LB_PROXY_OUTBOUND_TYPE='$PROXY_OUTBOUND_TYPE'
-LB_PROXY_OUTBOUND_SERVER='$PROXY_OUTBOUND_SERVER'
-LB_PROXY_OUTBOUND_PORT='$PROXY_OUTBOUND_PORT'
-LB_PROXY_OUTBOUND_USERNAME='$PROXY_OUTBOUND_USERNAME'
-LB_PROXY_OUTBOUND_PASSWORD='$PROXY_OUTBOUND_PASSWORD'
-LB_ROUTE_OPENAI_OUTBOUND='$ROUTE_OPENAI_OUTBOUND'
-LB_ROUTE_CLAUDE_OUTBOUND='$ROUTE_CLAUDE_OUTBOUND'
-LB_ROUTE_GEMINI_OUTBOUND='$ROUTE_GEMINI_OUTBOUND'
-LB_ROUTE_GOOGLE_OUTBOUND='$ROUTE_GOOGLE_OUTBOUND'
-LB_ROUTE_TIKTOK_OUTBOUND='$ROUTE_TIKTOK_OUTBOUND'
-LB_ROUTE_TWITTER_OUTBOUND='$ROUTE_TWITTER_OUTBOUND'
-LB_ROUTE_YOUTUBE_OUTBOUND='$ROUTE_YOUTUBE_OUTBOUND'
-LB_ROUTE_NETFLIX_OUTBOUND='$ROUTE_NETFLIX_OUTBOUND'
-LB_ROUTE_TELEGRAM_OUTBOUND='$ROUTE_TELEGRAM_OUTBOUND'
 EOF
   chmod 600 "$ENV_FILE"
 }
@@ -1284,6 +1007,21 @@ disable_warp() {
   WARP_ENABLED=0
 }
 
+delete_warp() {
+  service_disable_stop_best_effort "$WARP_SERVICE_NAME"
+  rm -rf "$WARP_DIR"
+  WARP_PRIVATE_KEY=""
+  WARP_IPV4=""
+  WARP_IPV6=""
+  WARP_PEER_PUBLIC_KEY=""
+  WARP_ENDPOINT_HOST="engage.cloudflareclient.com"
+  WARP_ENDPOINT_PORT="2408"
+  WARP_ENABLED=0
+  if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
+    OUTBOUND_MODE="auto"
+  fi
+}
+
 gen_cert() {
   mkdir -p "$CERT_DIR"
   if [ -s "$CERT_DIR/cert.pem" ] && [ -s "$CERT_DIR/key.pem" ]; then
@@ -1298,8 +1036,6 @@ write_config() {
   dns_block=""
   direct_domain_resolver=""
   warp_outbound_block=""
-  proxy_outbound_block=""
-  route_rules_block=""
   final_outbound="direct"
   case "$OUTBOUND_MODE" in
     prefer_ipv4|prefer_ipv6|ipv4_only|ipv6_only)
@@ -1336,90 +1072,6 @@ EOF
     warp_ready || die "WARP IPv4 出口未配置，请先在菜单中启用 WARP"
     final_outbound="warp"
   fi
-  if proxy_outbound_ready; then
-    proxy_auth_block=""
-    [ -n "$PROXY_OUTBOUND_USERNAME" ] && proxy_auth_block="${proxy_auth_block}
-      \"username\": \"$PROXY_OUTBOUND_USERNAME\","
-    [ -n "$PROXY_OUTBOUND_PASSWORD" ] && proxy_auth_block="${proxy_auth_block}
-      \"password\": \"$PROXY_OUTBOUND_PASSWORD\","
-    case "$PROXY_OUTBOUND_TYPE" in
-      socks)
-        proxy_outbound_block="$(cat <<EOF
-,
-    {
-      "type": "socks",
-      "tag": "proxy-out",
-      "server": "$PROXY_OUTBOUND_SERVER",
-      "server_port": $PROXY_OUTBOUND_PORT,
-      "version": "5",$proxy_auth_block
-      "domain_resolver": {
-        "server": "local",
-        "strategy": "prefer_ipv4"
-      }
-    }
-EOF
-)"
-        ;;
-      http)
-        proxy_outbound_block="$(cat <<EOF
-,
-    {
-      "type": "http",
-      "tag": "proxy-out",
-      "server": "$PROXY_OUTBOUND_SERVER",
-      "server_port": $PROXY_OUTBOUND_PORT,$proxy_auth_block
-      "domain_resolver": {
-        "server": "local",
-        "strategy": "prefer_ipv4"
-      }
-    }
-EOF
-)"
-        ;;
-      *)
-        die "unsupported proxy outbound type: $PROXY_OUTBOUND_TYPE"
-        ;;
-    esac
-  fi
-  split_route_rules_block=""
-  for rule_tag in $(route_rule_tags); do
-    rule_outbound="$(get_route_rule_outbound "$rule_tag")"
-    [ -n "$rule_outbound" ] || continue
-    split_outbound_available "$rule_outbound" || die "$(route_rule_label "$rule_tag") 分流依赖的出口不可用: $(outbound_tag_text "$rule_outbound")"
-    rule_domains_json=""
-    while IFS= read -r rule_domain; do
-      [ -n "$rule_domain" ] || continue
-      if [ -n "$rule_domains_json" ]; then
-        rule_domains_json="$rule_domains_json, "
-      fi
-      rule_domains_json="$rule_domains_json\"$rule_domain\""
-    done <<EOF
-$(route_rule_domains "$rule_tag")
-EOF
-    [ -n "$rule_domains_json" ] || continue
-    split_route_rules_block="${split_route_rules_block}
-      {
-        \"action\": \"route\",
-        \"domain_suffix\": [$rule_domains_json],
-        \"outbound\": \"$rule_outbound\"
-      },"
-  done
-  route_rules_block='
-      {
-        "action": "sniff"
-      },'
-  if [ -n "$split_route_rules_block" ]; then
-    split_route_rules_block="$(printf '%s\n' "$split_route_rules_block" | sed '$ s/,$//')"
-    route_rules_block="${route_rules_block}
-$split_route_rules_block"
-  fi
-  route_rules_only_block="$(printf '%s\n' "$route_rules_block" | sed '$ s/,$//')"
-  route_rules_block="$(cat <<EOF
-,
-    "rules": [$route_rules_only_block
-    ]
-EOF
-)"
   cat >"$CONF" <<EOF
 {
   "log": {
@@ -1545,10 +1197,10 @@ $dns_block
     {
       "type": "block",
       "tag": "block"
-    }$warp_outbound_block$proxy_outbound_block
+    }$warp_outbound_block
   ],
   "route": {
-    "auto_detect_interface": true$route_rules_block,
+    "auto_detect_interface": true,
     "final": "$final_outbound"
   }
 }
@@ -1862,6 +1514,7 @@ restart_all() {
 apply_changes() {
   require_installed
   need_root
+  log "正在更新 Litebox 配置并重启服务..."
   load_or_create_env
   install_cloudflared
   gen_cert
@@ -2087,184 +1740,57 @@ choose_firewall_action() {
   done
 }
 
-pick_split_rule_tag() {
-  while :; do
-    printf '\n' >&2
-    log "选择分流服务" >&2
-    idx=1
-    for tag in $(route_rule_tags); do
-      log "$idx. $(route_rule_label "$tag")" >&2
-      idx=$((idx + 1))
-    done
-    log "0. 返回上层" >&2
-    printf '请选择 [0-9]: ' >&2
-    read -r choice || exit 1
-    case "$choice" in
-      1) printf 'openai\n'; return 0 ;;
-      2) printf 'claude\n'; return 0 ;;
-      3) printf 'gemini\n'; return 0 ;;
-      4) printf 'google\n'; return 0 ;;
-      5) printf 'tiktok\n'; return 0 ;;
-      6) printf 'twitter\n'; return 0 ;;
-      7) printf 'youtube\n'; return 0 ;;
-      8) printf 'netflix\n'; return 0 ;;
-      9) printf 'telegram\n'; return 0 ;;
-      0) return 1 ;;
-      *) log "无效选择" >&2 ;;
-    esac
-  done
-}
-
-pick_split_outbound() {
-  while :; do
-    printf '\n' >&2
-    log "选择出口" >&2
-    idx=1
-    warp_idx=""
-    proxy_idx=""
-    if warp_ready; then
-      log "$idx. WARP IPv4 出口" >&2
-      warp_idx="$idx"
-      idx=$((idx + 1))
-    fi
-    if proxy_outbound_ready; then
-      log "$idx. SOCKS5 / HTTP 出口" >&2
-      proxy_idx="$idx"
-      idx=$((idx + 1))
-    fi
-    [ -n "$warp_idx$proxy_idx" ] || return 1
-    log "0. 返回上层" >&2
-    printf '请选择: ' >&2
-    read -r choice || exit 1
-    case "$choice" in
-      0) return 1 ;;
-      "$warp_idx")
-        printf 'warp\n'
-        return 0
-        ;;
-      "$proxy_idx")
-        printf 'proxy-out\n'
-        return 0
-        ;;
-      *) log "无效选择" >&2 ;;
-    esac
-  done
-}
-
-add_or_update_split_rule() {
-  service_tag="$(pick_split_rule_tag)" || return 0
-  outbound_tag="$(pick_split_outbound)" || {
-    log "当前没有可用的分流出口。请先启用 WARP，或先配置 Socks5 / HTTP 出口。"
-    return 0
-  }
-  set_route_rule_outbound "$service_tag" "$outbound_tag"
-  if is_installed; then
-    apply_changes
-  else
-    save_env
-  fi
-  log "$(route_rule_label "$service_tag") 已切换到 $(outbound_tag_text "$outbound_tag")。"
-}
-
-delete_split_rule() {
-  if [ "$(split_rule_count)" -eq 0 ]; then
-    log "当前没有已配置的分流规则。"
-    return 0
-  fi
+warp_manage_menu() {
   while :; do
     printf '\n'
-    log "删除分流规则"
-    idx=1
-    for tag in $(route_rule_tags); do
-      outbound_tag="$(get_route_rule_outbound "$tag")"
-      [ -n "$outbound_tag" ] || continue
-      log "$idx. $(route_rule_label "$tag") -> $(outbound_tag_text "$outbound_tag")"
-      eval "split_delete_tag_$idx='$tag'"
-      idx=$((idx + 1))
-    done
+    log "WARP 管理"
+    log "当前状态: $(warp_status_text)"
+    log "1. 安装或启用 WARP"
+    log "2. 关闭 WARP"
+    log "3. 删除 WARP"
     log "0. 返回上层"
-    printf '请选择: '
-    read -r choice || exit 1
-    case "$choice" in
-      0) return 0 ;;
-      ''|*[!0-9]*)
-        log "无效选择"
-        ;;
-      *)
-        eval "selected_tag=\${split_delete_tag_$choice:-}"
-        [ -n "${selected_tag:-}" ] || {
-          log "无效选择"
-          continue
-        }
-        clear_route_rule_outbound "$selected_tag"
+    printf '请选择 [0-3]: '
+    read -r action || exit 1
+    case "$action" in
+      1)
+        log "正在准备 WARP 配置..."
+        enable_warp_auto_or_manual
         if is_installed; then
+          save_env
           apply_changes
         else
           save_env
         fi
-        log "已删除 $(route_rule_label "$selected_tag") 的分流规则。"
-        return 0
+        log "WARP 已启用"
+        break
         ;;
-    esac
-  done
-}
-
-configure_proxy_outbound() {
-  while :; do
-    printf '请输入 Socks5 / HTTP 出口 URL，例如 socks5://user:pass@1.2.3.4:1080 或 http://1.2.3.4:8080: '
-    read -r proxy_url || exit 1
-    parse_proxy_url "$proxy_url" && break
-    log "代理 URL 格式无效，请重新输入。"
-  done
-  if is_installed; then
-    apply_changes
-  else
-    save_env
-  fi
-  log "Socks5 / HTTP 出口已更新为: $(proxy_outbound_summary)"
-}
-
-remove_proxy_outbound() {
-  proxy_outbound_ready || {
-    log "当前没有已配置的 Socks5 / HTTP 出口。"
-    return 0
-  }
-  if rules_using_proxy="$(split_rules_using_outbound proxy-out 2>/dev/null || true)"; [ -n "$rules_using_proxy" ]; then
-    clear_split_rules_by_outbound proxy-out
-    log "已同时移除这些分流规则: $rules_using_proxy"
-  fi
-  PROXY_OUTBOUND_TYPE=""
-  PROXY_OUTBOUND_SERVER=""
-  PROXY_OUTBOUND_PORT=""
-  PROXY_OUTBOUND_USERNAME=""
-  PROXY_OUTBOUND_PASSWORD=""
-  if is_installed; then
-    apply_changes
-  else
-    save_env
-  fi
-  log "Socks5 / HTTP 出口已删除。"
-}
-
-split_route_menu() {
-  while :; do
-    printf '\n'
-    log "WARP / SOCKS5 分流管理"
-    log "WARP 状态: $(warp_status_text)"
-    log "代理出口: $(proxy_outbound_summary)"
-    log "当前分流: $(split_rules_summary)"
-    log "1. 添加或更新分流规则"
-    log "2. 删除分流规则"
-    log "3. 添加或更新 Socks5 / HTTP 出口"
-    log "4. 删除 Socks5 / HTTP 出口"
-    log "0. 返回上层"
-    printf '请选择 [0-4]: '
-    read -r action || exit 1
-    case "$action" in
-      1) add_or_update_split_rule ;;
-      2) delete_split_rule ;;
-      3) configure_proxy_outbound ;;
-      4) remove_proxy_outbound ;;
+      2)
+        log "正在关闭 WARP..."
+        disable_warp
+        if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
+          OUTBOUND_MODE="auto"
+        fi
+        if is_installed; then
+          save_env
+          apply_changes
+        else
+          save_env
+        fi
+        log "WARP 已关闭"
+        break
+        ;;
+      3)
+        log "正在删除 WARP 配置..."
+        delete_warp
+        if is_installed; then
+          save_env
+          apply_changes
+        else
+          save_env
+        fi
+        log "WARP 已删除"
+        break
+        ;;
       0) break ;;
       *) log "无效选择" ;;
     esac
@@ -2279,7 +1805,7 @@ switch_outbound_menu() {
   fi
   while :; do
     printf '\n'
-    log "IPv4 / IPv6 / WARP / SOCKS5 出口切换"
+    log "IPv4 / IPv6 / WARP 出口切换"
     log "当前模式: $(outbound_mode_text)"
     log "1. 自动"
     log "2. IPv4 优先"
@@ -2287,11 +1813,9 @@ switch_outbound_menu() {
     log "4. 仅 IPv4"
     log "5. 仅 IPv6"
     log "6. WARP IPv4 出口"
-    log "7. 启用或更新 WARP"
-    log "8. 关闭 WARP"
-    log "9. WARP / SOCKS5 分流管理"
+    log "7. WARP 管理"
     log "0. 返回上层"
-    printf '请选择 [0-9]: '
+    printf '请选择 [0-7]: '
     read -r action || exit 1
     case "$action" in
       1) OUTBOUND_MODE="auto" ;;
@@ -2300,43 +1824,17 @@ switch_outbound_menu() {
       4) OUTBOUND_MODE="ipv4_only" ;;
       5) OUTBOUND_MODE="ipv6_only" ;;
       6)
-        warp_ready || die "WARP IPv4 出口未配置，请先选择“7. 启用或更新 WARP”"
+        warp_ready || die "WARP IPv4 出口未配置，请先进入“7. WARP 管理”安装或启用 WARP"
         OUTBOUND_MODE="warp_ipv4"
         ;;
       7)
-        enable_warp_auto_or_manual
-        if [ "$OUTBOUND_MODE" = "warp_ipv4" ] && is_installed; then
-          apply_changes
-        else
-          save_env
-        fi
-        log "WARP 已启用"
-        break
-        ;;
-      8)
-        disable_warp
-        if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
-          OUTBOUND_MODE="auto"
-        fi
-        if rules_using_warp="$(split_rules_using_outbound warp 2>/dev/null || true)"; [ -n "$rules_using_warp" ]; then
-          clear_split_rules_by_outbound warp
-          log "已同步移除这些 WARP 分流规则: $rules_using_warp"
-        fi
-        if is_installed; then
-          apply_changes
-        else
-          save_env
-        fi
-        log "WARP 已关闭"
-        break
-        ;;
-      9)
-        split_route_menu
+        warp_manage_menu
+        continue
         ;;
       0) break ;;
       *) log "无效选择"; continue ;;
     esac
-    if [ "$action" != "0" ] && [ "$action" != "7" ] && [ "$action" != "8" ] && [ "$action" != "9" ]; then
+    if [ "$action" != "0" ] && [ "$action" != "7" ]; then
       if is_installed; then
         apply_changes
       fi
@@ -2363,8 +1861,10 @@ prompt_port() {
 
 update_script_only() {
   need_root
+  log "正在更新 Litebox 脚本..."
   write_cli
   if is_installed; then
+    log "正在按新脚本重建当前安装配置..."
     load_or_create_env
     gen_cert
     save_env
@@ -2609,11 +2109,26 @@ config_all() {
   cat "$CONF"
 }
 
+confirm_uninstall_menu() {
+  printf '\n'
+  log "确认彻底卸载 Litebox 吗？"
+  log "1. 确认卸载"
+  log "0. 返回主菜单"
+  printf '请选择 [0-1]: '
+  read -r action || exit 1
+  case "$action" in
+    1) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 uninstall_all() {
   need_root
+  log "正在停止 Litebox 服务..."
   service_disable_stop litebox
   service_disable_stop litebox-argo
   service_disable_stop_best_effort "$WARP_SERVICE_NAME"
+  log "正在清理端口跳跃规则..."
   clear_port_hops
   if [ -f "$SING_BOX_MARKER" ]; then
     rm -f "$BIN"
@@ -2621,6 +2136,7 @@ uninstall_all() {
   if [ -f "$CF_MARKER" ]; then
     rm -f "$CLOUDFLARED_BIN"
   fi
+  log "正在删除 Litebox 文件..."
   rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$RUN_LITEBOX" "$RUN_ARGO"
   rm -rf "$BASE_DIR"
   service_reload
@@ -2724,7 +2240,7 @@ choose_uuid_mode() {
 maybe_warn_ipv6_only_no_nat64() {
   if [ "$(ipv4_status_text)" = "无" ] && [ "$(ipv6_status_text)" = "有" ] && [ "$(nat64_status_text)" = "不可用" ] && [ "$WARP_ENABLED" != "1" ]; then
     log "提示: 当前机器只有 IPv6，且未检测到 NAT64 / DNS64。"
-    log "如需更稳的 IPv4 出口，可在“4. IPv4 / IPv6 / WARP / SOCKS5 出口切换”中按需启用 WARP。"
+    log "如需更稳的 IPv4 出口，可在“4. IPv4 / IPv6 / WARP 出口切换”中按需启用 WARP。"
   fi
 }
 
@@ -2754,8 +2270,6 @@ show_menu() {
       log "本机 IPv4: ${current_ipv4:-未检测到}"
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
-      log "代理出口: $(proxy_outbound_summary)"
-      log "分流规则: $(split_rules_summary)"
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
       log "TUIC 跳跃: $(hop_status_text "$TUIC_HOP_PORTS")"
       log "HY2 跳跃: $(hop_status_text "$HY2_HOP_PORTS")"
@@ -2771,8 +2285,6 @@ show_menu() {
       log "本机 IPv4: ${current_ipv4:-未检测到}"
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
-      log "代理出口: $(proxy_outbound_summary)"
-      log "分流规则: $(split_rules_summary)"
       log "默认端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
       log "TUIC 跳跃: $(hop_status_text "$TUIC_HOP_PORTS")"
       log "HY2 跳跃: $(hop_status_text "$HY2_HOP_PORTS")"
@@ -2781,7 +2293,7 @@ show_menu() {
     log "1. 安装/更新 Litebox"
     log "2. Argo 隧道设置"
     log "3. 端口设置"
-    log "4. IPv4 / IPv6 / WARP / SOCKS5 出口切换"
+    log "4. IPv4 / IPv6 / WARP 出口切换"
     log "5. 重启 Litebox"
     log "6. 刷新并查看节点"
     log "7. 查看运行日志"
@@ -2798,6 +2310,7 @@ show_menu() {
       6) show_links ;;
       7) show_logs 80 ;;
       8)
+        confirm_uninstall_menu || continue
         uninstall_all
         break
         ;;
@@ -2809,11 +2322,15 @@ show_menu() {
 
 install_all() {
   need_root
+  log "正在检查运行环境..."
   install_deps_hint
   maybe_warn_ipv6_only_no_nat64
+  log "正在安装 sing-box..."
   install_sing_box
   load_or_create_env
+  log "正在准备 Cloudflare Argo 组件..."
   install_cloudflared
+  log "正在生成证书和配置..."
   gen_cert
   save_env
   write_config
