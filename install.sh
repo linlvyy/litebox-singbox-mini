@@ -802,6 +802,13 @@ warp_auto_register() {
 }
 
 enable_warp_auto_or_manual() {
+  if warp_ready; then
+    write_warp_config
+    service_enable_start_best_effort "$WARP_SERVICE_NAME"
+    WARP_ENABLED=1
+    log "已复用现有 WARP 配置并重新启用。"
+    return 0
+  fi
   if warp_auto_register; then
     log "WARP 已自动注册并启用。"
     return 0
@@ -1179,7 +1186,7 @@ warp_ready() {
 }
 
 install_warp_deps() {
-  pkg_install wireguard-tools openresolv
+  pkg_install wireguard-tools
 }
 
 ensure_warp_keys() {
@@ -1196,7 +1203,6 @@ write_warp_config() {
 [Interface]
 PrivateKey = $WARP_PRIVATE_KEY
 Address = $WARP_IPV4/32, $WARP_IPV6/128
-DNS = 1.1.1.1
 MTU = 1280
 Table = off
 PostUp = ip -4 rule add pref 10010 from all table main
@@ -1241,6 +1247,7 @@ write_config() {
   warp_outbound_block=""
   proxy_outbound_block=""
   route_rule_set_block=""
+  split_route_rules_block=""
   route_rules_block=""
   final_outbound="direct"
   case "$OUTBOUND_MODE" in
@@ -1336,19 +1343,37 @@ EOF
         \"url\": \"$rule_url\",
         \"download_detour\": \"direct\"
       },"
-    route_rules_block="${route_rules_block}
+    split_route_rules_block="${split_route_rules_block}
       {
+        \"action\": \"route\",
         \"rule_set\": [\"$rule_tag\"],
         \"outbound\": \"$rule_outbound\"
       },"
   done
+  route_rules_block='
+      {
+        "action": "sniff"
+      },'
+  if [ -n "$split_route_rules_block" ]; then
+    split_route_rules_block="$(printf '%s\n' "$split_route_rules_block" | sed '$ s/,$//')"
+    route_rules_block="${route_rules_block}
+$split_route_rules_block"
+  else
+    route_rules_block="$(printf '%s\n' "$route_rules_block" | sed '$ s/,$//')"
+  fi
   if [ -n "$route_rule_set_block" ]; then
     route_rule_set_block="$(printf '%s\n' "$route_rule_set_block" | sed '$ s/,$//')"
-    route_rules_block="$(printf '%s\n' "$route_rules_block" | sed '$ s/,$//')"
     route_rule_set_block="$(cat <<EOF
 ,
     "rule_set": [$route_rule_set_block
     ],
+    "rules": [$route_rules_block
+    ]
+EOF
+)"
+  else
+    route_rule_set_block="$(cat <<EOF
+,
     "rules": [$route_rules_block
     ]
 EOF
@@ -1367,8 +1392,6 @@ $dns_block
       "tag": "vless-reality",
       "listen": "::",
       "listen_port": $VLESS_PORT,
-      "sniff": true,
-      "sniff_override_destination": true,
       "users": [
         {
           "name": "$NAME",
@@ -1395,8 +1418,6 @@ $dns_block
       "tag": "anytls",
       "listen": "::",
       "listen_port": $ANYTLS_PORT,
-      "sniff": true,
-      "sniff_override_destination": true,
       "users": [
         {
           "name": "$NAME",
@@ -1415,8 +1436,6 @@ $dns_block
       "tag": "tuic-v5",
       "listen": "::",
       "listen_port": $TUIC_PORT,
-      "sniff": true,
-      "sniff_override_destination": true,
       "users": [
         {
           "name": "$NAME",
@@ -1440,8 +1459,6 @@ $dns_block
       "tag": "hysteria2",
       "listen": "::",
       "listen_port": $HY2_PORT,
-      "sniff": true,
-      "sniff_override_destination": true,
       "obfs": {
         "type": "salamander",
         "password": "$LB_HY2_OBFS"
@@ -1466,8 +1483,6 @@ $dns_block
       "tag": "vmess-ws-argo",
       "listen": "127.0.0.1",
       "listen_port": $VMESS_LOCAL_PORT,
-      "sniff": true,
-      "sniff_override_destination": true,
       "users": [
         {
           "name": "$NAME",

@@ -128,6 +128,7 @@ Argo 子菜单支持：
 - 自动生成 WireGuard 密钥
 - 自动向 Cloudflare WARP 注册设备
 - 自动获取 `IPv4` / `IPv6` 地址、Peer 公钥和 Endpoint
+- 如果本机已经存在有效 WARP 配置，则直接复用，不会重复注册
 
 只有自动获取失败时，才会回退到手动输入模式。
 
@@ -265,7 +266,7 @@ Litebox 现在支持两种额外出口：
 - `WARP IPv4 出口` 可作为全局最终出口使用
 - `WARP` 和 `Socks5 / HTTP` 都可以作为分流出口使用
 - 分流规则会抓取对应服务的远程 `.srs` 规则集，再把该服务流量送到你选择的出口
-- 为了让 `OpenAI`、`YouTube` 这类域名规则真正命中，Litebox 会在入站上开启 `sniff` 和 `sniff_override_destination`
+- 为了让 `OpenAI`、`YouTube` 这类域名规则真正命中，Litebox 会按 sing-box 1.13+ 的方式，在 `route.rules` 里先执行 `sniff` 再做分流
 
 当前远程规则集来源参考 `eooce/Sing-box`：
 
@@ -299,7 +300,7 @@ http://user:pass@1.2.3.4:8080
 - `TUIC v5`、`Hysteria2` 和端口跳跃端口都是 UDP 转发到对应协议端口，协议本身仍需要 UUID/密码认证。
 - `/etc/litebox/env` 和 `/etc/litebox/links.txt` 默认权限是 `0600`，避免节点密钥被普通用户直接读取。
 - Alpine / OpenRC 安装后也会创建 `litebox`、`LB`、`lb` 三个快捷命令。
-- WARP 默认不安装、不启用，只有用户在菜单里手动开启时才会安装 `wireguard-tools` / `openresolv` 等依赖。
+- WARP 默认不安装、不启用，只有用户在菜单里手动开启时才会安装 `wireguard-tools`。
 
 ## 生成文件
 
