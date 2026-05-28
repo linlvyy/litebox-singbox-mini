@@ -2,7 +2,7 @@
 set -eu
 
 NAME="litebox"
-VERSION="1.0.1"
+SCRIPT_VERSION="1.0.1"
 HOP_PORTS_MAX=50
 BIN="/usr/local/bin/sing-box"
 CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
@@ -99,10 +99,8 @@ detect_os() {
     return 0
   fi
   if [ -r /etc/os-release ]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    OS_ID="${ID:-}"
-    OS_LIKE="${ID_LIKE:-}"
+    OS_ID="$(sed -n 's/^ID=//p' /etc/os-release | head -n 1 | tr -d '"' || true)"
+    OS_LIKE="$(sed -n 's/^ID_LIKE=//p' /etc/os-release | head -n 1 | tr -d '"' || true)"
   fi
 }
 
@@ -1239,7 +1237,7 @@ gen_cert() {
 
 write_config() {
   dns_block=""
-  direct_resolver_line=""
+  direct_domain_resolver=""
   warp_outbound_block=""
   proxy_outbound_block=""
   route_rule_set_block=""
@@ -1258,7 +1256,7 @@ write_config() {
   },
 EOF
 )"
-    direct_resolver_line="$(printf ',\n      "domain_resolver": {\n        "server": "local",\n        "strategy": "%s"\n      }' "$OUTBOUND_MODE")"
+    direct_domain_resolver="$(printf ',\n      "domain_resolver": {\n        "server": "local",\n        "strategy": "%s"\n      }' "$OUTBOUND_MODE")"
       ;;
   esac
   if warp_ready; then
@@ -1268,7 +1266,10 @@ EOF
       "type": "direct",
       "tag": "warp",
       "bind_interface": "wgcf",
-      "domain_strategy": "ipv4_only"
+      "domain_resolver": {
+        "server": "local",
+        "strategy": "ipv4_only"
+      }
     }
 EOF
 )"
@@ -1293,7 +1294,10 @@ EOF
       "server": "$PROXY_OUTBOUND_SERVER",
       "server_port": $PROXY_OUTBOUND_PORT,
       "version": "5",$proxy_auth_block
-      "domain_strategy": "prefer_ipv4"
+      "domain_resolver": {
+        "server": "local",
+        "strategy": "prefer_ipv4"
+      }
     }
 EOF
 )"
@@ -1306,7 +1310,10 @@ EOF
       "tag": "proxy-out",
       "server": "$PROXY_OUTBOUND_SERVER",
       "server_port": $PROXY_OUTBOUND_PORT,$proxy_auth_block
-      "domain_strategy": "prefer_ipv4"
+      "domain_resolver": {
+        "server": "local",
+        "strategy": "prefer_ipv4"
+      }
     }
 EOF
 )"
@@ -1360,6 +1367,8 @@ $dns_block
       "tag": "vless-reality",
       "listen": "::",
       "listen_port": $VLESS_PORT,
+      "sniff": true,
+      "sniff_override_destination": true,
       "users": [
         {
           "name": "$NAME",
@@ -1386,6 +1395,8 @@ $dns_block
       "tag": "anytls",
       "listen": "::",
       "listen_port": $ANYTLS_PORT,
+      "sniff": true,
+      "sniff_override_destination": true,
       "users": [
         {
           "name": "$NAME",
@@ -1404,6 +1415,8 @@ $dns_block
       "tag": "tuic-v5",
       "listen": "::",
       "listen_port": $TUIC_PORT,
+      "sniff": true,
+      "sniff_override_destination": true,
       "users": [
         {
           "name": "$NAME",
@@ -1427,6 +1440,8 @@ $dns_block
       "tag": "hysteria2",
       "listen": "::",
       "listen_port": $HY2_PORT,
+      "sniff": true,
+      "sniff_override_destination": true,
       "obfs": {
         "type": "salamander",
         "password": "$LB_HY2_OBFS"
@@ -1451,6 +1466,8 @@ $dns_block
       "tag": "vmess-ws-argo",
       "listen": "127.0.0.1",
       "listen_port": $VMESS_LOCAL_PORT,
+      "sniff": true,
+      "sniff_override_destination": true,
       "users": [
         {
           "name": "$NAME",
@@ -1467,7 +1484,7 @@ $dns_block
   "outbounds": [
     {
       "type": "direct",
-      "tag": "direct"$direct_resolver_line
+      "tag": "direct"$direct_domain_resolver
     },
     {
       "type": "block",
@@ -2292,7 +2309,7 @@ update_script_only() {
   need_root
   write_cli
   printf '\n'
-  log "Litebox 脚本已更新到版本 $VERSION。"
+  log "Litebox 脚本已更新到版本 $SCRIPT_VERSION。"
   printf '按回车返回主菜单...'
   read -r _ || exit 1
   exec "$CLI" menu
@@ -2643,7 +2660,7 @@ show_menu() {
   while :; do
     printf '\n'
     log "Litebox 快捷菜单"
-    log "版本: $VERSION"
+    log "版本: $SCRIPT_VERSION"
     current_ipv4="$(local_ipv4 || true)"
     current_ipv6="$(local_ipv6 || true)"
     if is_installed; then
