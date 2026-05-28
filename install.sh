@@ -2323,8 +2323,24 @@ prompt_port() {
 update_script_only() {
   need_root
   write_cli
+  if is_installed; then
+    load_or_create_env
+    gen_cert
+    save_env
+    write_config
+    write_services
+    write_links
+    enable_services
+    apply_port_hops
+    if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
+      refresh_temp_argo_links || true
+    fi
+  fi
   printf '\n'
   log "Litebox 脚本已更新到版本 $SCRIPT_VERSION。"
+  if is_installed; then
+    log "当前安装配置也已按新脚本重新生成。"
+  fi
   printf '按回车返回主菜单...'
   read -r _ || exit 1
   exec "$CLI" menu
