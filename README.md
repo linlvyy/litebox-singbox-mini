@@ -72,7 +72,7 @@ sudo litebox uninstall
 - `1` 安装/更新 Litebox
 - `2` Argo 隧道设置
 - `3` 端口设置
-- `4` IPv4 / IPv6 / WARP 出口切换
+- `4` IPv4 / IPv6 / WARP / Socks5 出口切换
 - `5` 重启 Litebox
 - `6` 刷新并查看节点
 - `7` 查看运行日志
@@ -121,6 +121,26 @@ Argo 子菜单支持：
 - WARP IPv4 出口
 - 启用或更新 WARP
 - 关闭 WARP
+- WARP / Socks5 分流管理
+
+WARP / Socks5 分流管理支持：
+
+- 添加或更新分流规则
+- 删除分流规则
+- 添加或更新 `Socks5 / HTTP` 出口
+- 删除 `Socks5 / HTTP` 出口
+
+分流服务参考 `eooce/Sing-box`，当前支持：
+
+- `OpenAI`
+- `Claude`
+- `Gemini`
+- `Google`
+- `TikTok`
+- `Twitter / X`
+- `YouTube`
+- `Netflix`
+- `Telegram`
 
 每次安装或重装时，都会额外让你选择：
 
@@ -136,6 +156,8 @@ Argo 子菜单支持：
 - 是否可用 NAT64 / DNS64
 
 如果是 IPv6-only 且检测不到 NAT64，安装时会提示你可选启用 WARP 作为 IPv4 出口，但不会强制安装。
+
+如果你需要按服务单独走 WARP 或代理出口，可以在 `4. IPv4 / IPv6 / WARP / Socks5 出口切换` 里进入分流管理。
 
 ## 端口策略
 
@@ -188,8 +210,6 @@ sudo litebox logs
 - `path` 自动使用 `$UUID-vm`
 - `sni` 跟随真实临时隧道域名
 
-如果 Litebox 已经安装，再进入主菜单选择 `1` 不会直接重装，脚本会在安装菜单下方提示你先卸载再重新安装，避免旧配置和新配置混在一起。
-
 重置临时 Argo 后，脚本会主动等待真实 HOST，并在菜单和节点信息里显示。
 
 选择 `6` 刷新并查看节点后，脚本会停留在节点结果页，按回车后才返回主菜单，方便直接复制链接。
@@ -224,6 +244,41 @@ sudo litebox logs
 - 只开 `Hysteria2`
 - 两个都开
 - 两个都关
+
+## WARP 与 Socks5 分流
+
+Litebox 现在支持两种额外出口：
+
+- `WARP IPv4 出口`
+- `Socks5 / HTTP` 代理出口
+
+其中：
+
+- `WARP IPv4 出口` 可作为全局最终出口使用
+- `WARP` 和 `Socks5 / HTTP` 都可以作为分流出口使用
+- 分流规则会抓取对应服务的远程 `.srs` 规则集，再把该服务流量送到你选择的出口
+
+当前远程规则集来源参考 `eooce/Sing-box`：
+
+- `OpenAI`、`Google`、`TikTok`、`Twitter / X`、`YouTube`、`Netflix`、`Telegram` 使用 `MetaCubeX` 的 `geosite` 二进制规则集
+- `Claude`、`Gemini` 使用参考项目中同样的远程 `.srs` 规则集
+
+代理出口 URL 示例：
+
+```bash
+socks5://1.2.3.4:1080
+socks5://user:pass@1.2.3.4:1080
+http://1.2.3.4:8080
+http://user:pass@1.2.3.4:8080
+```
+
+行为说明：
+
+- 如果只启用 WARP，不配置代理出口，分流菜单里可把指定服务切到 `WARP IPv4 出口`
+- 如果只配置 `Socks5 / HTTP` 出口，不启用 WARP，分流菜单里可把指定服务切到代理出口
+- 两者都配置时，可以按服务分别选择走 `WARP` 或 `Socks5 / HTTP`
+- 删除代理出口时，会自动清理所有仍指向该代理出口的分流规则
+- 关闭 WARP 时，会自动清理所有仍指向 `WARP` 的分流规则
 
 ## 安全边界
 
@@ -270,7 +325,8 @@ sudo litebox logs
 - Alpine 使用 `OpenRC`，脚本会优先尝试 `apk add sing-box`；Debian / Ubuntu 通常使用 `systemd`，脚本会自动识别并生成对应服务。
 - IPv6-only 机器如果没有公网 IPv4，脚本会继续安装，并优先生成 `[IPv6]:端口` 形式的节点地址。
 - 如果 IPv6-only 机器存在 NAT64 / DNS64，默认不需要 WARP 也可以继续使用。
-- WARP 采用轻量 WireGuard 方式，可选启用；启用后可把 sing-box 出站切到 `WARP IPv4`，用于 IPv4 出站访问。
+- WARP 采用轻量 WireGuard 方式，可选启用；启用后可把 sing-box 出站切到 `WARP IPv4`，也可以只给 `OpenAI`、`Google`、`Telegram` 这类服务单独分流到 WARP。
+- `Socks5 / HTTP` 出口不额外引入 Docker、nginx 或数据库，只是在 sing-box 里追加一个轻量代理出站。
 - 对 128 MB 小鸡来说，脚本主体没有问题，额外压力主要来自启用 Argo 后的 `cloudflared` 进程。
 
 ## 参考
