@@ -801,7 +801,42 @@ warp_auto_register() {
   return 0
 }
 
+load_warp_from_conf() {
+  [ -f "$WARP_CONF" ] || return 1
+  conf_private_key="$(sed -n 's/^PrivateKey = //p' "$WARP_CONF" | head -n 1)"
+  conf_address_line="$(sed -n 's/^Address = //p' "$WARP_CONF" | head -n 1)"
+  conf_peer_key="$(sed -n 's/^PublicKey = //p' "$WARP_CONF" | tail -n 1)"
+  conf_endpoint="$(sed -n 's/^Endpoint = //p' "$WARP_CONF" | tail -n 1)"
+  [ -n "$conf_private_key" ] || return 1
+  [ -n "$conf_address_line" ] || return 1
+  [ -n "$conf_peer_key" ] || return 1
+  [ -n "$conf_endpoint" ] || return 1
+  conf_ipv4="$(printf '%s' "$conf_address_line" | cut -d',' -f1 | sed 's#/32##' | xargs)"
+  conf_ipv6="$(printf '%s' "$conf_address_line" | cut -d',' -f2 | sed 's#/128##' | xargs)"
+  conf_endpoint_host="${conf_endpoint%:*}"
+  conf_endpoint_port="${conf_endpoint##*:}"
+  [ -n "$conf_ipv4" ] || return 1
+  [ -n "$conf_ipv6" ] || return 1
+  port_valid "$conf_endpoint_port" || return 1
+  WARP_PRIVATE_KEY="$conf_private_key"
+  WARP_IPV4="$conf_ipv4"
+  WARP_IPV6="$conf_ipv6"
+  WARP_PEER_PUBLIC_KEY="$conf_peer_key"
+  WARP_ENDPOINT_HOST="$conf_endpoint_host"
+  WARP_ENDPOINT_PORT="$conf_endpoint_port"
+  WARP_ENABLED=1
+  return 0
+}
+
 enable_warp_auto_or_manual() {
+  if load_warp_from_conf; then
+    install_warp_deps
+    write_warp_config
+    service_enable_start_best_effort "$WARP_SERVICE_NAME"
+    WARP_ENABLED=1
+    log "已从现有 WARP 配置恢复并启用。"
+    return 0
+  fi
   if warp_ready; then
     write_warp_config
     service_enable_start_best_effort "$WARP_SERVICE_NAME"
@@ -1047,6 +1082,9 @@ load_or_create_env() {
   fi
 
   apply_saved_settings
+  if { [ -z "$WARP_PRIVATE_KEY" ] || [ -z "$WARP_IPV4" ] || [ -z "$WARP_IPV6" ] || [ -z "$WARP_PEER_PUBLIC_KEY" ]; } && [ -f "$WARP_CONF" ]; then
+    load_warp_from_conf || true
+  fi
 
   if [ -z "${LB_SERVER:-}" ]; then
     if has_public_ipv4; then
