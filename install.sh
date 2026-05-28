@@ -59,6 +59,7 @@ WARP_PEER_PUBLIC_KEY="${WARP_PEER_PUBLIC_KEY:-}"
 WARP_ENDPOINT_HOST="${WARP_ENDPOINT_HOST:-engage.cloudflareclient.com}"
 WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-2408}"
 WARP_ENABLED="${WARP_ENABLED:-0}"
+WARP_CLIENT_VERSION="${WARP_CLIENT_VERSION:-a-6.11-2223}"
 PROXY_OUTBOUND_TYPE="${PROXY_OUTBOUND_TYPE:-}"
 PROXY_OUTBOUND_SERVER="${PROXY_OUTBOUND_SERVER:-}"
 PROXY_OUTBOUND_PORT="${PROXY_OUTBOUND_PORT:-}"
@@ -774,6 +775,62 @@ parse_proxy_url() {
   PROXY_OUTBOUND_PORT="$proxy_port"
   PROXY_OUTBOUND_USERNAME="$proxy_user"
   PROXY_OUTBOUND_PASSWORD="$proxy_pass"
+  return 0
+}
+
+warp_auto_register() {
+  install_warp_deps
+  ensure_warp_keys
+  warp_public_key="$(printf '%s\n' "$WARP_PRIVATE_KEY" | wg pubkey)"
+  warp_payload="$(printf '{"key":"%s","install_id":"","fcm_token":"","tos":"%s","model":"Linux","serial_number":"%s"}' "$warp_public_key" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$(uuid)")"
+  warp_response="$(curl -fsSL -X POST "https://api.cloudflareclient.com/v0a2158/reg" \
+    -H "Content-Type: application/json" \
+    -H "CF-Client-Version: $WARP_CLIENT_VERSION" \
+    -d "$warp_payload" 2>/dev/null || true)"
+  [ -n "$warp_response" ] || return 1
+  WARP_IPV4="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"addresses":{"v4":"\([^"]*\)","v6":"\([^"]*\)".*/\1/p' | head -n 1)"
+  WARP_IPV6="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"addresses":{"v4":"\([^"]*\)","v6":"\([^"]*\)".*/\2/p' | head -n 1)"
+  WARP_PEER_PUBLIC_KEY="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"peers":\[{"public_key":"\([^"]*\)".*/\1/p' | head -n 1)"
+  WARP_ENDPOINT_HOST="$(printf '%s' "$warp_response" | tr -d '\n' | sed -n 's/.*"endpoint":{"v4":"[^"]*","v6":"[^"]*","host":"\([^"]*\)".*/\1/p' | head -n 1)"
+  [ -n "$WARP_IPV4" ] || return 1
+  [ -n "$WARP_IPV6" ] || return 1
+  [ -n "$WARP_PEER_PUBLIC_KEY" ] || return 1
+  [ -n "$WARP_ENDPOINT_HOST" ] || WARP_ENDPOINT_HOST="engage.cloudflareclient.com"
+  WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-2408}"
+  write_warp_config
+  service_enable_start_best_effort "$WARP_SERVICE_NAME"
+  WARP_ENABLED=1
+  return 0
+}
+
+enable_warp_auto_or_manual() {
+  if warp_auto_register; then
+    log "WARP 已自动注册并启用。"
+    return 0
+  fi
+  log "自动获取 WARP 配置失败，回退到手动输入。"
+  printf '请输入 WARP Interface PrivateKey [留空自动生成]: '
+  read -r warp_private_key_input || exit 1
+  [ -n "$warp_private_key_input" ] && WARP_PRIVATE_KEY="$warp_private_key_input"
+  printf '请输入 WARP IPv4 地址，例如 172.16.0.2: '
+  read -r warp_ipv4_input || exit 1
+  [ -n "$warp_ipv4_input" ] || die "WARP IPv4 地址不能为空"
+  printf '请输入 WARP IPv6 地址，例如 2606:4700:110:xxxx:xxxx:xxxx:xxxx:xxxx: '
+  read -r warp_ipv6_input || exit 1
+  [ -n "$warp_ipv6_input" ] || die "WARP IPv6 地址不能为空"
+  printf '请输入 WARP Peer PublicKey: '
+  read -r warp_peer_key_input || exit 1
+  [ -n "$warp_peer_key_input" ] || die "WARP Peer PublicKey 不能为空"
+  printf '请输入 WARP Endpoint Host [%s]: ' "$WARP_ENDPOINT_HOST"
+  read -r warp_endpoint_host_input || exit 1
+  printf '请输入 WARP Endpoint Port [%s]: ' "$WARP_ENDPOINT_PORT"
+  read -r warp_endpoint_port_input || exit 1
+  WARP_IPV4="$warp_ipv4_input"
+  WARP_IPV6="$warp_ipv6_input"
+  WARP_PEER_PUBLIC_KEY="$warp_peer_key_input"
+  [ -n "$warp_endpoint_host_input" ] && WARP_ENDPOINT_HOST="$warp_endpoint_host_input"
+  [ -n "$warp_endpoint_port_input" ] && WARP_ENDPOINT_PORT="$warp_endpoint_port_input"
+  enable_warp
   return 0
 }
 
@@ -1959,15 +2016,15 @@ choose_firewall_action() {
 
 pick_split_rule_tag() {
   while :; do
-    printf '\n'
-    log "选择分流服务"
+    printf '\n' >&2
+    log "选择分流服务" >&2
     idx=1
     for tag in $(route_rule_tags); do
-      log "$idx. $(route_rule_label "$tag")"
+      log "$idx. $(route_rule_label "$tag")" >&2
       idx=$((idx + 1))
     done
-    log "0. 返回上层"
-    printf '请选择 [0-9]: '
+    log "0. 返回上层" >&2
+    printf '请选择 [0-9]: ' >&2
     read -r choice || exit 1
     case "$choice" in
       1) printf 'openai\n'; return 0 ;;
@@ -1980,31 +2037,31 @@ pick_split_rule_tag() {
       8) printf 'netflix\n'; return 0 ;;
       9) printf 'telegram\n'; return 0 ;;
       0) return 1 ;;
-      *) log "无效选择" ;;
+      *) log "无效选择" >&2 ;;
     esac
   done
 }
 
 pick_split_outbound() {
   while :; do
-    printf '\n'
-    log "选择出口"
+    printf '\n' >&2
+    log "选择出口" >&2
     idx=1
     warp_idx=""
     proxy_idx=""
     if warp_ready; then
-      log "$idx. WARP IPv4 出口"
+      log "$idx. WARP IPv4 出口" >&2
       warp_idx="$idx"
       idx=$((idx + 1))
     fi
     if proxy_outbound_ready; then
-      log "$idx. SOCKS5 / HTTP 出口"
+      log "$idx. SOCKS5 / HTTP 出口" >&2
       proxy_idx="$idx"
       idx=$((idx + 1))
     fi
     [ -n "$warp_idx$proxy_idx" ] || return 1
-    log "0. 返回上层"
-    printf '请选择: '
+    log "0. 返回上层" >&2
+    printf '请选择: ' >&2
     read -r choice || exit 1
     case "$choice" in
       0) return 1 ;;
@@ -2016,7 +2073,7 @@ pick_split_outbound() {
         printf 'proxy-out\n'
         return 0
         ;;
-      *) log "无效选择" ;;
+      *) log "无效选择" >&2 ;;
     esac
   done
 }
@@ -2174,28 +2231,7 @@ switch_outbound_menu() {
         OUTBOUND_MODE="warp_ipv4"
         ;;
       7)
-        printf '请输入 WARP Interface PrivateKey [留空自动生成]: '
-        read -r warp_private_key_input || exit 1
-        [ -n "$warp_private_key_input" ] && WARP_PRIVATE_KEY="$warp_private_key_input"
-        printf '请输入 WARP IPv4 地址，例如 172.16.0.2: '
-        read -r warp_ipv4_input || exit 1
-        [ -n "$warp_ipv4_input" ] || die "WARP IPv4 地址不能为空"
-        printf '请输入 WARP IPv6 地址，例如 2606:4700:110:xxxx:xxxx:xxxx:xxxx:xxxx: '
-        read -r warp_ipv6_input || exit 1
-        [ -n "$warp_ipv6_input" ] || die "WARP IPv6 地址不能为空"
-        printf '请输入 WARP Peer PublicKey: '
-        read -r warp_peer_key_input || exit 1
-        [ -n "$warp_peer_key_input" ] || die "WARP Peer PublicKey 不能为空"
-        printf '请输入 WARP Endpoint Host [%s]: ' "$WARP_ENDPOINT_HOST"
-        read -r warp_endpoint_host_input || exit 1
-        printf '请输入 WARP Endpoint Port [%s]: ' "$WARP_ENDPOINT_PORT"
-        read -r warp_endpoint_port_input || exit 1
-        WARP_IPV4="$warp_ipv4_input"
-        WARP_IPV6="$warp_ipv6_input"
-        WARP_PEER_PUBLIC_KEY="$warp_peer_key_input"
-        [ -n "$warp_endpoint_host_input" ] && WARP_ENDPOINT_HOST="$warp_endpoint_host_input"
-        [ -n "$warp_endpoint_port_input" ] && WARP_ENDPOINT_PORT="$warp_endpoint_port_input"
-        enable_warp
+        enable_warp_auto_or_manual
         if [ "$OUTBOUND_MODE" = "warp_ipv4" ] && is_installed; then
           apply_changes
         else
