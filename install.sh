@@ -911,6 +911,10 @@ reset_identity() {
 install_sing_box() {
   arch="$(arch_name)"
   mkdir -p "$BASE_DIR"
+  if is_alpine && [ -e "$BIN" ] && ! sing_box_usable "$BIN"; then
+    log "removing unusable Alpine sing-box residue: $BIN"
+    rm -f "$BIN" "$SING_BOX_MARKER"
+  fi
   if is_alpine && has apk; then
     log "detected Alpine Linux, trying apk add sing-box first"
     if apk add --no-cache sing-box >/dev/null 2>&1; then
