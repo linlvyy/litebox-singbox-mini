@@ -704,6 +704,10 @@ require_installed() {
   is_installed || die "litebox is not installed yet"
 }
 
+sing_box_usable() {
+  [ -x "$1" ] && "$1" version >/dev/null 2>&1
+}
+
 port_valid() {
   case "$1" in
     ''|*[!0-9]*) return 1 ;;
@@ -912,6 +916,7 @@ install_sing_box() {
     if apk add --no-cache sing-box >/dev/null 2>&1; then
       found="$(command -v sing-box || true)"
       [ -n "$found" ] || die "apk installed sing-box but binary was not found in PATH"
+      sing_box_usable "$found" || die "apk installed sing-box but binary cannot run"
       if [ "$found" != "$BIN" ]; then
         ln -sf "$found" "$BIN"
       fi
@@ -921,19 +926,23 @@ install_sing_box() {
     log "apk add sing-box unavailable, falling back to upstream tarball"
   fi
   if [ -x "$BIN" ]; then
-    rm -f "$SING_BOX_MARKER"
-    return 0
+    if sing_box_usable "$BIN"; then
+      rm -f "$SING_BOX_MARKER"
+      return 0
+    fi
+    log "existing sing-box cannot run, reinstalling"
+    rm -f "$BIN"
   fi
   tmp="$(mktemp -d)"
   urls="$(release_asset_urls SagerNet/sing-box "$SING_BOX_VERSION")"
   exact_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}\.tar\.gz$" | head -n 1)"
   musl_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-musl\.tar\.gz$" | head -n 1)"
   anylinux_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-anylinux\.tar\.gz$" | head -n 1)"
-  other_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}[^/]*\.tar\.gz$" | grep -Ev '(-glibc|-gnu)\.tar\.gz$' | head -n 1)"
+  other_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}[^/]*\.tar\.gz$" | grep -Ev "(linux-${arch}|-glibc|-gnu)\.tar\.gz$" | head -n 1)"
   glibc_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-(glibc|gnu)\.tar\.gz$" | head -n 1)"
 
   if is_alpine; then
-    url="${exact_url:-${musl_url:-${anylinux_url:-$other_url}}}"
+    url="${musl_url:-${anylinux_url:-$other_url}}"
   else
     url="${exact_url:-${other_url:-${glibc_url:-${musl_url:-$anylinux_url}}}}"
   fi
@@ -944,6 +953,7 @@ install_sing_box() {
   found="$(find "$tmp" -type f -name sing-box | head -n 1)"
   [ -n "$found" ] || die "sing-box binary not found"
   install -m 0755 "$found" "$BIN"
+  sing_box_usable "$BIN" || die "installed sing-box cannot run on this system"
   : >"$SING_BOX_MARKER"
   rm -rf "$tmp"
 }
