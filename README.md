@@ -33,6 +33,7 @@ Alpine 安装行为：
 - 优先执行 `apk add --no-cache sing-box`
 - 如果当前 `apk` 仓库没有 `sing-box`，再回退到 sing-box 官方发布包
 - Alpine 回退下载时只选 `musl` / 通用 Linux 包，不会选 `glibc` 包
+- 安装前会先补齐 `curl`、`tar`、`openssl`、`gawk`、`openrc` 等基础依赖
 - 检测到 `OpenRC` 时，会生成 `litebox` / `litebox-argo` 的 OpenRC 服务并自动开机自启
 - IPv6-only 小鸡也可以安装，未开启 WARP 时会直接生成 IPv6 入站节点
 

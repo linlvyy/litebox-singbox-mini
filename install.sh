@@ -682,6 +682,20 @@ install_deps_hint() {
   [ "$INIT_SYSTEM" != "unknown" ] || die "missing service manager: need systemd or openrc"
 }
 
+install_base_deps() {
+  if is_alpine && has apk; then
+    apk add --no-cache bash curl tar openssl sed grep gawk ca-certificates openrc
+    return 0
+  fi
+  if has apt-get; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y curl tar openssl sed grep gawk ca-certificates
+    return 0
+  fi
+  true
+}
+
 is_installed() {
   [ -x "$BIN" ] && [ -f "$CONF" ] && [ -f "$ENV_FILE" ]
 }
@@ -2326,6 +2340,7 @@ show_menu() {
 install_all() {
   need_root
   log "正在检查运行环境..."
+  install_base_deps
   install_deps_hint
   maybe_warn_ipv6_only_no_nat64
   log "正在安装 sing-box..."
