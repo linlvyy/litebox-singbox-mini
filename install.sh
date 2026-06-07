@@ -66,6 +66,34 @@ die() { log "error: $*" >&2; exit 1; }
 need_root() { [ "$(id -u)" = "0" ] || die "please run as root"; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
+progress_step() {
+  current="$1"
+  total="$2"
+  shift 2
+  filled="$(( current * 10 / total ))"
+  bar=""
+  i=1
+  while [ "$i" -le 10 ]; do
+    if [ "$i" -le "$filled" ]; then
+      bar="${bar}#"
+    else
+      bar="${bar}-"
+    fi
+    i="$((i + 1))"
+  done
+  log "[$bar] $current/$total $*"
+}
+
+file_sha256() {
+  if has sha256sum; then
+    sha256sum "$1" | awk '{print $1}'
+  elif has shasum; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    die "missing sha256sum or shasum"
+  fi
+}
+
 pkg_install() {
   if is_alpine && has apk; then
     apk add --no-cache "$@"
@@ -732,6 +760,22 @@ install_base_deps() {
   true
 }
 
+install_port_hop_deps() {
+  has iptables && has ip6tables && return 0
+  log "正在安装端口跳跃依赖 iptables..."
+  if is_alpine && has apk; then
+    apk add --no-cache iptables
+    return 0
+  fi
+  if has apt-get; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y iptables
+    return 0
+  fi
+  die "端口跳跃需要 iptables/ip6tables，请先手动安装"
+}
+
 is_installed() {
   [ -x "$BIN" ] && [ -f "$CONF" ] && [ -f "$ENV_FILE" ]
 }
@@ -1386,15 +1430,19 @@ EOF
 }
 
 write_cli() {
-  if ! curl -fsSL "$SCRIPT_URL" -o "$CLI"; then
+  cli_source="${1:-}"
+  if [ -n "$cli_source" ]; then
+    install -m 0755 "$cli_source" "$CLI"
+  elif ! curl -fsSL "$SCRIPT_URL" -o "$CLI"; then
     self_path="$0"
     if [ -r "$self_path" ] && [ "$(basename "$self_path")" != "bash" ]; then
       install -m 0755 "$self_path" "$CLI"
     else
       die "cannot install litebox cli"
     fi
+  else
+    chmod 0755 "$CLI"
   fi
-  chmod 0755 "$CLI"
   rm -f "$OLD_SB_CLI"
   ln -sf "$CLI" "$LB_CLI"
   ln -sf "$CLI" "$LB_CLI_UPPER"
@@ -1590,7 +1638,7 @@ restart_all() {
 apply_changes() {
   require_installed
   need_root
-  log "正在更新 Litebox 配置并重启服务..."
+  progress_step 1 4 "正在更新 Litebox 配置..."
   load_or_create_env
   install_cloudflared
   gen_cert
@@ -1598,11 +1646,14 @@ apply_changes() {
   write_config
   write_services
   write_links
+  progress_step 2 4 "正在启用服务..."
   enable_services
+  progress_step 3 4 "正在应用端口跳跃规则..."
   apply_port_hops
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     refresh_temp_argo_links || true
   fi
+  progress_step 4 4 "配置更新完成"
 }
 
 set_random_ports() {
@@ -1683,6 +1734,11 @@ clear_port_hops() {
 
 apply_port_hops() {
   clear_port_hops
+  if [ -n "$TUIC_HOP_PORTS" ] || [ -n "$HY2_HOP_PORTS" ]; then
+    install_port_hop_deps
+    has iptables || die "端口跳跃需要 iptables"
+    has ip6tables || die "端口跳跃需要 ip6tables"
+  fi
   if has iptables; then
     oldifs="$IFS"
     IFS=','
@@ -1869,41 +1925,47 @@ warp_manage_menu() {
     read -r action || exit 1
     case "$action" in
       1)
-        log "正在准备 WARP 配置..."
+        progress_step 1 3 "正在准备 WARP 配置..."
         enable_warp_auto_or_manual
         if is_installed; then
           save_env
+          progress_step 2 3 "正在更新 Litebox 配置..."
           apply_changes
         else
           save_env
         fi
+        progress_step 3 3 "WARP 启用完成"
         log "WARP 已启用"
         break
         ;;
       2)
-        log "正在关闭 WARP..."
+        progress_step 1 3 "正在关闭 WARP..."
         disable_warp
         if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
           OUTBOUND_MODE="auto"
         fi
         if is_installed; then
           save_env
+          progress_step 2 3 "正在更新 Litebox 配置..."
           apply_changes
         else
           save_env
         fi
+        progress_step 3 3 "WARP 关闭完成"
         log "WARP 已关闭"
         break
         ;;
       3)
-        log "正在删除 WARP 配置..."
+        progress_step 1 3 "正在删除 WARP 配置..."
         delete_warp
         if is_installed; then
           save_env
+          progress_step 2 3 "正在更新 Litebox 配置..."
           apply_changes
         else
           save_env
         fi
+        progress_step 3 3 "WARP 删除完成"
         log "WARP 已删除"
         break
         ;;
@@ -1977,22 +2039,33 @@ prompt_port() {
 
 update_script_only() {
   need_root
-  log "正在更新 Litebox 脚本..."
-  write_cli
-  if is_installed; then
-    log "正在按新脚本重建当前安装配置..."
-    load_or_create_env
-    gen_cert
-    save_env
-    write_config
-    write_services
-    write_links
-    enable_services
-    apply_port_hops
-    if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
-      refresh_temp_argo_links || true
-    fi
+  tmp_script="$(mktemp)"
+  progress_step 1 4 "正在检查 GitHub 项目是否有更新..."
+  if ! curl -fsSL "$SCRIPT_URL" -o "$tmp_script"; then
+    rm -f "$tmp_script"
+    die "无法下载远端脚本，请检查网络"
   fi
+  chmod 0755 "$tmp_script"
+  current_hash=""
+  remote_hash="$(file_sha256 "$tmp_script")"
+  if [ -f "$CLI" ]; then
+    current_hash="$(file_sha256 "$CLI")"
+  fi
+  if [ -n "$current_hash" ] && [ "$current_hash" = "$remote_hash" ]; then
+    rm -f "$tmp_script"
+    printf '\n'
+    log "Litebox 项目无变化，当前脚本已是最新版本 $SCRIPT_VERSION。"
+    printf '按回车返回主菜单...'
+    read -r _ || exit 1
+    exec "$CLI" menu
+  fi
+  log "检测到 Litebox 项目有更新，正在安装新脚本..."
+  progress_step 2 4 "正在更新 Litebox 快捷脚本..."
+  write_cli "$tmp_script"
+  rm -f "$tmp_script"
+  progress_step 3 4 "正在按新脚本重建当前安装配置..."
+  "$CLI" update-apply
+  progress_step 4 4 "更新完成"
   printf '\n'
   log "Litebox 脚本已更新到版本 $SCRIPT_VERSION。"
   if is_installed; then
@@ -2001,6 +2074,22 @@ update_script_only() {
   printf '按回车返回主菜单...'
   read -r _ || exit 1
   exec "$CLI" menu
+}
+
+update_apply() {
+  need_root
+  is_installed || exit 0
+  load_or_create_env
+  gen_cert
+  save_env
+  write_config
+  write_services
+  write_links
+  enable_services
+  apply_port_hops
+  if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
+    refresh_temp_argo_links || true
+  fi
 }
 
 change_ports_menu() {
@@ -2240,11 +2329,11 @@ confirm_uninstall_menu() {
 
 uninstall_all() {
   need_root
-  log "正在停止 Litebox 服务..."
+  progress_step 1 4 "正在停止 Litebox 服务..."
   service_disable_stop litebox
   service_disable_stop litebox-argo
   service_disable_stop_best_effort "$WARP_SERVICE_NAME"
-  log "正在清理端口跳跃规则..."
+  progress_step 2 4 "正在清理端口跳跃规则..."
   clear_port_hops
   if [ -f "$SING_BOX_MARKER" ]; then
     rm -f "$BIN"
@@ -2252,10 +2341,11 @@ uninstall_all() {
   if [ -f "$CF_MARKER" ]; then
     rm -f "$CLOUDFLARED_BIN"
   fi
-  log "正在删除 Litebox 文件..."
+  progress_step 3 4 "正在删除 Litebox 文件..."
   rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$RUN_LITEBOX" "$RUN_ARGO"
   rm -rf "$BASE_DIR"
   service_reload
+  progress_step 4 4 "卸载完成"
   log "Litebox 已彻底卸载完成。"
 }
 
@@ -2436,31 +2526,37 @@ show_menu() {
 
 install_all() {
   need_root
-  log "正在检查运行环境..."
+  progress_step 1 8 "正在检查运行环境..."
   install_base_deps
   install_deps_hint
   maybe_warn_ipv6_only_no_nat64
-  log "正在安装 sing-box..."
+  progress_step 2 8 "正在安装 sing-box..."
   install_sing_box
   load_or_create_env
   choose_nat_entry_addr
-  log "正在准备 Cloudflare Argo 组件..."
+  progress_step 3 8 "正在准备 Cloudflare Argo 组件..."
   install_cloudflared
-  log "正在生成证书和配置..."
+  progress_step 4 8 "正在生成证书和配置..."
   gen_cert
   save_env
   write_config
   write_services
+  progress_step 5 8 "正在创建快捷命令..."
   write_cli
   write_links
   if [ "${FIREWALL_ACTION:-1}" = "1" ]; then
+    progress_step 6 8 "正在开放服务端口..."
     open_service_ports
+  else
+    progress_step 6 8 "已跳过端口开放"
   fi
+  progress_step 7 8 "正在应用端口跳跃和启动服务..."
   apply_port_hops
   enable_services
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
     refresh_temp_argo_links || true
   fi
+  progress_step 8 8 "安装完成"
   display_links_screen "安装完成"
 }
 
@@ -2478,6 +2574,7 @@ case "${1:-$(default_action)}" in
   uninstall) uninstall_all ;;
   ports) change_ports_menu ;;
   argo) argo_menu ;;
+  update-apply) update_apply ;;
   menu) show_menu ;;
   *) die "用法: $0 [install|status|config|info|logs [lines]|restart|uninstall|ports|argo|menu]" ;;
 esac
