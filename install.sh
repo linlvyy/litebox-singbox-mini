@@ -303,12 +303,15 @@ public_ip() {
       return
     }
   done
-  hostname -I 2>/dev/null | awk '{print $1}'
+  ip="$(local_ipv4 2>/dev/null || true)"
+  if [ -n "$ip" ] && ! private_or_nat_ipv4 "$ip"; then
+    printf '%s\n' "$ip"
+  fi
 }
 
 has_public_ipv4() {
   ip="$(public_ip 2>/dev/null || true)"
-  printf '%s\n' "$ip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+  printf '%s\n' "$ip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' && ! private_or_nat_ipv4 "$ip"
 }
 
 has_public_ipv6() {
