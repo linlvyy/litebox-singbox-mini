@@ -1108,19 +1108,39 @@ write_warp_service() {
   cat >"$WARP_OPENRC_SERVICE" <<EOF
 #!/sbin/openrc-run
 description="Litebox WARP WireGuard"
-command="wg-quick"
-command_args="up $WARP_CONF"
-command_background="false"
 
 depend() {
   need net
   after litebox
 }
 
+start() {
+  ebegin "Starting Litebox WARP"
+  if wg show wgcf >/dev/null 2>&1; then
+    eend 0
+    return 0
+  fi
+  wg-quick up "$WARP_CONF" >/dev/null 2>&1
+  eend \$?
+}
+
 stop() {
   ebegin "Stopping Litebox WARP"
-  wg-quick down "$WARP_CONF" >/dev/null 2>&1 || true
+  if wg show wgcf >/dev/null 2>&1; then
+    wg-quick down "$WARP_CONF" >/dev/null 2>&1 || true
+  fi
   eend 0
+}
+
+status() {
+  if wg show wgcf >/dev/null 2>&1; then
+    ebegin "status: started"
+    eend 0
+    return 0
+  fi
+  ebegin "status: stopped"
+  eend 3
+  return 3
 }
 EOF
   chmod 0755 "$WARP_OPENRC_SERVICE"
