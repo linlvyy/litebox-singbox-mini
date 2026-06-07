@@ -1709,6 +1709,12 @@ clear_port_hops() {
     while rule="$(iptables -t nat -S PREROUTING 2>/dev/null | grep -m 1 'litebox-hy2-hop' || true)"; [ -n "$rule" ]; do
       iptables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
     done
+    while rule="$(iptables -t nat -S OUTPUT 2>/dev/null | grep -m 1 'litebox-tuic-hop-output' || true)"; [ -n "$rule" ]; do
+      iptables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
+    done
+    while rule="$(iptables -t nat -S OUTPUT 2>/dev/null | grep -m 1 'litebox-hy2-hop-output' || true)"; [ -n "$rule" ]; do
+      iptables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
+    done
     while rule="$(iptables -S INPUT 2>/dev/null | grep -m 1 'litebox-tuic-hop-input' || true)"; [ -n "$rule" ]; do
       iptables -D ${rule#-A } >/dev/null 2>&1 || break
     done
@@ -1721,6 +1727,12 @@ clear_port_hops() {
       ip6tables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
     done
     while rule="$(ip6tables -t nat -S PREROUTING 2>/dev/null | grep -m 1 'litebox-hy2-hop' || true)"; [ -n "$rule" ]; do
+      ip6tables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
+    done
+    while rule="$(ip6tables -t nat -S OUTPUT 2>/dev/null | grep -m 1 'litebox-tuic-hop-output' || true)"; [ -n "$rule" ]; do
+      ip6tables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
+    done
+    while rule="$(ip6tables -t nat -S OUTPUT 2>/dev/null | grep -m 1 'litebox-hy2-hop-output' || true)"; [ -n "$rule" ]; do
       ip6tables -t nat -D ${rule#-A } >/dev/null 2>&1 || break
     done
     while rule="$(ip6tables -S INPUT 2>/dev/null | grep -m 1 'litebox-tuic-hop-input' || true)"; [ -n "$rule" ]; do
@@ -1748,6 +1760,9 @@ apply_port_hops() {
       iptables -C INPUT -p udp --dport "$port" -m comment --comment litebox-tuic-hop-input -j ACCEPT >/dev/null 2>&1 ||
         iptables -I INPUT -p udp --dport "$port" -m comment --comment litebox-tuic-hop-input -j ACCEPT >/dev/null 2>&1 || true
       iptables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
+      if printf '%s\n' "$LB_SERVER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        iptables -t nat -A OUTPUT -d "$LB_SERVER" -p udp --dport "$port" -m comment --comment litebox-tuic-hop-output -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
+      fi
     done
     expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
     for port in $expanded_hy2_hop_ports; do
@@ -1755,6 +1770,9 @@ apply_port_hops() {
       iptables -C INPUT -p udp --dport "$port" -m comment --comment litebox-hy2-hop-input -j ACCEPT >/dev/null 2>&1 ||
         iptables -I INPUT -p udp --dport "$port" -m comment --comment litebox-hy2-hop-input -j ACCEPT >/dev/null 2>&1 || true
       iptables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
+      if printf '%s\n' "$LB_SERVER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        iptables -t nat -A OUTPUT -d "$LB_SERVER" -p udp --dport "$port" -m comment --comment litebox-hy2-hop-output -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
+      fi
     done
     IFS="$oldifs"
   fi
@@ -1767,6 +1785,9 @@ apply_port_hops() {
       ip6tables -C INPUT -p udp --dport "$port" -m comment --comment litebox-tuic-hop-input -j ACCEPT >/dev/null 2>&1 ||
         ip6tables -I INPUT -p udp --dport "$port" -m comment --comment litebox-tuic-hop-input -j ACCEPT >/dev/null 2>&1 || true
       ip6tables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-tuic-hop -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
+      if printf '%s\n' "$LB_SERVER" | grep -q ':'; then
+        ip6tables -t nat -A OUTPUT -d "$LB_SERVER" -p udp --dport "$port" -m comment --comment litebox-tuic-hop-output -j REDIRECT --to-ports "$TUIC_PORT" >/dev/null 2>&1 || true
+      fi
     done
     expanded_hy2_hop_ports="$(expand_hop_ports "$HY2_HOP_PORTS")"
     for port in $expanded_hy2_hop_ports; do
@@ -1774,6 +1795,9 @@ apply_port_hops() {
       ip6tables -C INPUT -p udp --dport "$port" -m comment --comment litebox-hy2-hop-input -j ACCEPT >/dev/null 2>&1 ||
         ip6tables -I INPUT -p udp --dport "$port" -m comment --comment litebox-hy2-hop-input -j ACCEPT >/dev/null 2>&1 || true
       ip6tables -t nat -A PREROUTING -p udp --dport "$port" -m comment --comment litebox-hy2-hop -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
+      if printf '%s\n' "$LB_SERVER" | grep -q ':'; then
+        ip6tables -t nat -A OUTPUT -d "$LB_SERVER" -p udp --dport "$port" -m comment --comment litebox-hy2-hop-output -j REDIRECT --to-ports "$HY2_PORT" >/dev/null 2>&1 || true
+      fi
     done
     IFS="$oldifs"
   fi
