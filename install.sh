@@ -1094,11 +1094,13 @@ write_config() {
   direct_strategy="prefer_ipv4"
   warp_outbound_block=""
   final_outbound="direct"
+  auto_detect_interface=true
   case "$OUTBOUND_MODE" in
     prefer_ipv6|ipv6_only)
       dns_strategy="$OUTBOUND_MODE"
       dns_server="2606:4700:4700::1111"
       direct_strategy="$OUTBOUND_MODE"
+      auto_detect_interface=false
       ;;
     prefer_ipv4|ipv4_only)
       dns_strategy="$OUTBOUND_MODE"
@@ -1109,6 +1111,7 @@ write_config() {
     dns_strategy="prefer_ipv6"
     dns_server="2606:4700:4700::1111"
     direct_strategy="prefer_ipv6"
+    auto_detect_interface=false
   fi
   direct_domain_resolver="$(printf ',\n      "domain_resolver": {\n        "server": "litebox-dns",\n        "strategy": "%s"\n      }' "$direct_strategy")"
   if warp_ready; then
@@ -1273,7 +1276,7 @@ $dns_block
     }$warp_outbound_block
   ],
   "route": {
-    "auto_detect_interface": true,
+    "auto_detect_interface": $auto_detect_interface,
     "final": "$final_outbound"
   }
 }
