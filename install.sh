@@ -15,7 +15,11 @@ SING_BOX_MARKER="$BASE_DIR/installed-by-litebox.sing-box"
 CF_MARKER="$BASE_DIR/installed-by-litebox.cloudflared"
 WARP_DIR="$BASE_DIR/warp"
 WARP_CONF="$WARP_DIR/wgcf.conf"
+WARP_SYSTEM_DIR="/etc/wireguard"
+WARP_SYSTEM_CONF="$WARP_SYSTEM_DIR/wgcf.conf"
 WARP_SERVICE_NAME="wg-quick@wgcf"
+WARP_OPENRC_SERVICE_NAME="litebox-warp"
+WARP_OPENRC_SERVICE="/etc/init.d/$WARP_OPENRC_SERVICE_NAME"
 SERVICE=""
 ARGO_SERVICE=""
 CLI="/usr/local/bin/litebox"
@@ -662,14 +666,14 @@ enable_warp_auto_or_manual() {
   if load_warp_from_conf; then
     install_warp_deps
     write_warp_config
-    service_enable_start_best_effort "$WARP_SERVICE_NAME"
+    warp_service_enable_start
     WARP_ENABLED=1
     log "已从现有 WARP 配置恢复并启用。"
     return 0
   fi
   if warp_ready; then
     write_warp_config
-    service_enable_start_best_effort "$WARP_SERVICE_NAME"
+    warp_service_enable_start
     WARP_ENABLED=1
     log "已复用现有 WARP 配置并重新启用。"
     return 0
@@ -1093,22 +1097,64 @@ Endpoint = $WARP_ENDPOINT_HOST:$WARP_ENDPOINT_PORT
 PersistentKeepalive = 25
 EOF
   chmod 600 "$WARP_CONF"
+  mkdir -p "$WARP_SYSTEM_DIR"
+  cp "$WARP_CONF" "$WARP_SYSTEM_CONF"
+  chmod 600 "$WARP_SYSTEM_CONF"
+}
+
+write_warp_service() {
+  detect_init_system
+  [ "$INIT_SYSTEM" = "openrc" ] || return 0
+  cat >"$WARP_OPENRC_SERVICE" <<EOF
+#!/sbin/openrc-run
+description="Litebox WARP WireGuard"
+command="wg-quick"
+command_args="up $WARP_CONF"
+command_background="false"
+
+depend() {
+  need net
+  after litebox
+}
+
+stop() {
+  ebegin "Stopping Litebox WARP"
+  wg-quick down "$WARP_CONF" >/dev/null 2>&1 || true
+  eend 0
+}
+EOF
+  chmod 0755 "$WARP_OPENRC_SERVICE"
+}
+
+warp_service_enable_start() {
+  detect_init_system
+  write_warp_service
+  case "$INIT_SYSTEM" in
+    systemd) service_enable_start_best_effort "$WARP_SERVICE_NAME" ;;
+    openrc) service_enable_start_best_effort "$WARP_OPENRC_SERVICE_NAME" ;;
+  esac
+}
+
+warp_service_disable_stop() {
+  service_disable_stop_best_effort "$WARP_SERVICE_NAME"
+  service_disable_stop_best_effort "$WARP_OPENRC_SERVICE_NAME"
 }
 
 enable_warp() {
   install_warp_deps
   write_warp_config
-  service_enable_start_best_effort "$WARP_SERVICE_NAME"
+  warp_service_enable_start
   WARP_ENABLED=1
 }
 
 disable_warp() {
-  service_disable_stop_best_effort "$WARP_SERVICE_NAME"
+  warp_service_disable_stop
   WARP_ENABLED=0
 }
 
 delete_warp() {
-  service_disable_stop_best_effort "$WARP_SERVICE_NAME"
+  warp_service_disable_stop
+  rm -f "$WARP_SYSTEM_CONF" "$WARP_OPENRC_SERVICE"
   rm -rf "$WARP_DIR"
   WARP_PRIVATE_KEY=""
   WARP_IPV4=""
@@ -2361,7 +2407,7 @@ uninstall_all() {
   progress_step 1 4 "正在停止 Litebox 服务..."
   service_disable_stop litebox
   service_disable_stop litebox-argo
-  service_disable_stop_best_effort "$WARP_SERVICE_NAME"
+  warp_service_disable_stop
   progress_step 2 4 "正在清理端口跳跃规则..."
   clear_port_hops
   if [ -f "$SING_BOX_MARKER" ]; then
@@ -2371,7 +2417,7 @@ uninstall_all() {
     rm -f "$CLOUDFLARED_BIN"
   fi
   progress_step 3 4 "正在删除 Litebox 文件..."
-  rm -f "$SERVICE" "$ARGO_SERVICE" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$RUN_LITEBOX" "$RUN_ARGO"
+  rm -f "$SERVICE" "$ARGO_SERVICE" "$WARP_OPENRC_SERVICE" "$WARP_SYSTEM_CONF" "$CLI" "$LB_CLI" "$LB_CLI_UPPER" "$OLD_SB_CLI" "$RUN_LITEBOX" "$RUN_ARGO"
   rm -rf "$BASE_DIR"
   service_reload
   progress_step 4 4 "卸载完成"
