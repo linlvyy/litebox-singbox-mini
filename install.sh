@@ -2079,6 +2079,11 @@ update_script_only() {
     rm -f "$tmp_script"
     printf '\n'
     log "Litebox 项目无变化，当前脚本已是最新版本 $SCRIPT_VERSION。"
+    if is_installed; then
+      log "正在同步当前安装配置和端口跳跃规则..."
+      "$CLI" update-apply
+      log "当前安装配置已同步。"
+    fi
     printf '按回车返回主菜单...'
     read -r _ || exit 1
     exec "$CLI" menu
