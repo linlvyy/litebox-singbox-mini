@@ -1086,19 +1086,29 @@ gen_cert() {
 }
 
 write_config() {
-  dns_block=""
-  direct_domain_resolver=""
+  dns_strategy="prefer_ipv4"
+  dns_server="1.1.1.1"
+  direct_strategy="prefer_ipv4"
   warp_outbound_block=""
   final_outbound="direct"
-  ensure_local_dns=0
   case "$OUTBOUND_MODE" in
-    prefer_ipv4|prefer_ipv6|ipv4_only|ipv6_only)
-    ensure_local_dns=1
-    direct_domain_resolver="$(printf ',\n      "domain_resolver": {\n        "server": "local",\n        "strategy": "%s"\n      }' "$OUTBOUND_MODE")"
+    prefer_ipv6|ipv6_only)
+      dns_strategy="$OUTBOUND_MODE"
+      dns_server="2606:4700:4700::1111"
+      direct_strategy="$OUTBOUND_MODE"
+      ;;
+    prefer_ipv4|ipv4_only)
+      dns_strategy="$OUTBOUND_MODE"
+      direct_strategy="$OUTBOUND_MODE"
       ;;
   esac
+  if ! has_public_ipv4 && [ "$OUTBOUND_MODE" = "auto" ]; then
+    dns_strategy="prefer_ipv6"
+    dns_server="2606:4700:4700::1111"
+    direct_strategy="prefer_ipv6"
+  fi
+  direct_domain_resolver="$(printf ',\n      "domain_resolver": {\n        "server": "litebox-dns",\n        "strategy": "%s"\n      }' "$direct_strategy")"
   if warp_ready; then
-    ensure_local_dns=1
     warp_outbound_block="$(cat <<EOF
 ,
     {
@@ -1106,26 +1116,28 @@ write_config() {
       "tag": "warp",
       "bind_interface": "wgcf",
       "domain_resolver": {
-        "server": "local",
+        "server": "litebox-dns",
         "strategy": "ipv4_only"
       }
     }
 EOF
 )"
   fi
-  if [ "$ensure_local_dns" = "1" ]; then
-    dns_block="$(cat <<EOF
+  dns_block="$(cat <<EOF
   "dns": {
     "servers": [
       {
-        "type": "local",
-        "tag": "local"
+        "type": "udp",
+        "tag": "litebox-dns",
+        "server": "$dns_server",
+        "server_port": 53
       }
-    ]
+    ],
+    "final": "litebox-dns",
+    "strategy": "$dns_strategy"
   },
 EOF
 )"
-  fi
   if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
     warp_ready || die "WARP IPv4 出口未配置，请先在菜单中启用 WARP"
     final_outbound="warp"
