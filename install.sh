@@ -504,7 +504,7 @@ dns64_status_text() {
 
 warp_status_text() {
   if [ "$WARP_ENABLED" = "1" ]; then
-    if service_is_active "$WARP_SERVICE_NAME"; then
+    if service_is_active "$WARP_SERVICE_NAME" || service_is_active "$WARP_OPENRC_SERVICE_NAME"; then
       printf '已启用'
     else
       printf '已配置'
