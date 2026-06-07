@@ -63,6 +63,7 @@ WARP_PEER_PUBLIC_KEY="${WARP_PEER_PUBLIC_KEY:-}"
 WARP_ENDPOINT_HOST="${WARP_ENDPOINT_HOST:-engage.cloudflareclient.com}"
 WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-2408}"
 WARP_ENABLED="${WARP_ENABLED:-0}"
+WARP_SPLIT_ENABLED="${WARP_SPLIT_ENABLED:-0}"
 WARP_CLIENT_VERSION="${WARP_CLIENT_VERSION:-a-6.11-2223}"
 
 log() { printf '%s\n' "$*"; }
@@ -513,6 +514,14 @@ warp_status_text() {
   fi
 }
 
+warp_split_status_text() {
+  if [ "$WARP_SPLIT_ENABLED" = "1" ]; then
+    printf '已开启'
+  else
+    printf '未开启'
+  fi
+}
+
 vendor_short_name() {
   vendor_info=""
   for file in /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name /sys/class/dmi/id/board_vendor; do
@@ -874,6 +883,7 @@ apply_saved_settings() {
   WARP_ENDPOINT_HOST="${WARP_ENDPOINT_HOST:-${LB_WARP_ENDPOINT_HOST:-engage.cloudflareclient.com}}"
   WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-${LB_WARP_ENDPOINT_PORT:-2408}}"
   WARP_ENABLED="${WARP_ENABLED:-${LB_WARP_ENABLED:-0}}"
+  WARP_SPLIT_ENABLED="${WARP_SPLIT_ENABLED:-${LB_WARP_SPLIT_ENABLED:-0}}"
 }
 
 save_env() {
@@ -910,6 +920,7 @@ LB_WARP_PEER_PUBLIC_KEY='$WARP_PEER_PUBLIC_KEY'
 LB_WARP_ENDPOINT_HOST='$WARP_ENDPOINT_HOST'
 LB_WARP_ENDPOINT_PORT='$WARP_ENDPOINT_PORT'
 LB_WARP_ENABLED='$WARP_ENABLED'
+LB_WARP_SPLIT_ENABLED='$WARP_SPLIT_ENABLED'
 EOF
   chmod 600 "$ENV_FILE"
 }
@@ -1170,6 +1181,7 @@ enable_warp() {
 disable_warp() {
   warp_service_disable_stop
   WARP_ENABLED=0
+  WARP_SPLIT_ENABLED=0
 }
 
 delete_warp() {
@@ -1183,6 +1195,7 @@ delete_warp() {
   WARP_ENDPOINT_HOST="engage.cloudflareclient.com"
   WARP_ENDPOINT_PORT="2408"
   WARP_ENABLED=0
+  WARP_SPLIT_ENABLED=0
   if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
     OUTBOUND_MODE="auto"
   fi
@@ -1203,6 +1216,8 @@ write_config() {
   dns_server="1.1.1.1"
   direct_strategy="prefer_ipv4"
   warp_outbound_block=""
+  warp_rule_set_block=""
+  warp_route_rules_block=""
   final_outbound="direct"
   auto_detect_interface=true
   case "$OUTBOUND_MODE" in
@@ -1236,6 +1251,91 @@ write_config() {
         "strategy": "ipv4_only"
       }
     }
+EOF
+)"
+  fi
+  if warp_ready && [ "$WARP_SPLIT_ENABLED" = "1" ]; then
+    warp_rule_set_block="$(cat <<EOF
+    {
+      "type": "remote",
+      "tag": "warp-gemini",
+      "format": "binary",
+      "url": "https://github.com/vernette/rulesets/raw/master/srs/gemini.srs"
+    },
+    {
+      "type": "remote",
+      "tag": "warp-claude",
+      "format": "binary",
+      "url": "https://github.com/vernette/rulesets/raw/master/srs/claude.srs"
+    },
+    {
+      "type": "remote",
+      "tag": "warp-openai",
+      "format": "binary",
+      "url": "https://github.com/vernette/rulesets/raw/master/srs/openai.srs"
+    },
+    {
+      "type": "remote",
+      "tag": "warp-tiktok",
+      "format": "binary",
+      "url": "https://github.com/vernette/rulesets/raw/master/srs/tiktok.srs"
+    },
+    {
+      "type": "remote",
+      "tag": "warp-x",
+      "format": "binary",
+      "url": "https://github.com/vernette/rulesets/raw/master/srs/x.srs"
+    },
+    {
+      "type": "remote",
+      "tag": "warp-google",
+      "format": "binary",
+      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs"
+    },
+    {
+      "type": "remote",
+      "tag": "warp-telegram",
+      "format": "binary",
+      "url": "https://github.com/vernette/rulesets/raw/master/srs/telegram.srs"
+    },
+    {
+      "type": "remote",
+      "tag": "warp-youtube",
+      "format": "binary",
+      "url": "https://github.com/vernette/rulesets/raw/master/srs/youtube.srs"
+    },
+    {
+      "type": "remote",
+      "tag": "warp-netflix",
+      "format": "binary",
+      "url": "https://github.com/vernette/rulesets/raw/master/srs/netflix.srs"
+    }
+EOF
+)"
+    warp_route_rules_block="$(cat <<EOF
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "warp-gemini",
+          "warp-claude",
+          "warp-openai",
+          "warp-tiktok",
+          "warp-x",
+          "warp-google",
+          "warp-telegram",
+          "warp-youtube",
+          "warp-netflix"
+        ],
+        "outbound": "warp"
+      }
+    ],
+    "rule_set": [
+      $warp_rule_set_block
+    ],
 EOF
 )"
   fi
@@ -1387,6 +1487,7 @@ $dns_block
   ],
   "route": {
     "auto_detect_interface": $auto_detect_interface,
+${warp_route_rules_block}
     "final": "$final_outbound"
   }
 }
@@ -2011,11 +2112,14 @@ warp_manage_menu() {
     printf '\n'
     log "WARP 管理"
     log "当前状态: $(warp_status_text)"
+    log "分流规则: $(warp_split_status_text)"
     log "1. 安装或启用 WARP"
     log "2. 关闭 WARP"
     log "3. 删除 WARP"
+    log "4. 开启 WARP 分流规则"
+    log "5. 关闭 WARP 分流规则"
     log "0. 返回上层"
-    printf '请选择 [0-3]: '
+    printf '请选择 [0-5]: '
     read -r action || exit 1
     case "$action" in
       1)
@@ -2061,6 +2165,33 @@ warp_manage_menu() {
         fi
         progress_step 3 3 "WARP 删除完成"
         log "WARP 已删除"
+        break
+        ;;
+      4)
+        warp_ready || die "请先安装或启用 WARP"
+        WARP_SPLIT_ENABLED=1
+        if is_installed; then
+          save_env
+          progress_step 1 2 "正在更新 WARP 分流配置..."
+          apply_changes
+        else
+          save_env
+        fi
+        progress_step 2 2 "WARP 分流已开启"
+        log "WARP 分流规则已开启"
+        break
+        ;;
+      5)
+        WARP_SPLIT_ENABLED=0
+        if is_installed; then
+          save_env
+          progress_step 1 2 "正在关闭 WARP 分流配置..."
+          apply_changes
+        else
+          save_env
+        fi
+        progress_step 2 2 "WARP 分流已关闭"
+        log "WARP 分流规则已关闭"
         break
         ;;
       0) break ;;
@@ -2580,6 +2711,7 @@ show_menu() {
       log "本机 IPv4: ${current_ipv4:-未检测到}"
       log "本机 IPv6: ${current_ipv6:-未检测到}"
       log "出口模式: $(outbound_mode_text)"
+      log "WARP 分流: $(warp_split_status_text)"
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
       log "端口跳跃: tuic=$(hop_status_text "$TUIC_HOP_PORTS")   hy2=$(hop_status_text "$HY2_HOP_PORTS")"
     else

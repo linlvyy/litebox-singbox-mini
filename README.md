@@ -128,6 +128,8 @@ WARP 管理二级菜单支持：
 - 安装或启用 WARP
 - 关闭 WARP
 - 删除 WARP
+- 开启 WARP 分流规则
+- 关闭 WARP 分流规则
 
 `安装或启用 WARP` 默认会先自动注册免费 WARP 配置：
 
@@ -135,6 +137,20 @@ WARP 管理二级菜单支持：
 - 自动向 Cloudflare WARP 注册设备
 - 自动获取 `IPv4` / `IPv6` 地址、Peer 公钥和 Endpoint
 - 如果本机已经存在有效 WARP 配置，则直接复用，不会重复注册
+
+`WARP IPv4 出口` 是全局出口模式，所有出站流量默认走 WARP。
+
+`WARP 分流规则` 是可选分流模式，需要先安装或启用 WARP。开启后仅以下 9 类服务命中规则时走 WARP，其余流量继续按当前出口模式直连：
+
+- Gemini
+- Claude
+- OpenAI / ChatGPT
+- TikTok
+- Twitter / X
+- Google
+- Telegram
+- YouTube
+- Netflix
 
 每次安装或重装时，都会额外让你选择：
 
