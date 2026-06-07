@@ -1712,6 +1712,10 @@ apply_changes() {
   write_config
   write_services
   write_links
+  if [ "$WARP_ENABLED" = "1" ] && warp_ready; then
+    write_warp_config
+    warp_service_enable_start
+  fi
   progress_step 2 4 "正在启用服务..."
   enable_services
   progress_step 3 4 "正在应用端口跳跃规则..."
@@ -2104,6 +2108,7 @@ switch_outbound_menu() {
     esac
     if [ "$action" != "0" ] && [ "$action" != "7" ]; then
       if is_installed; then
+        save_env
         apply_changes
       fi
       log "出口模式已切换为: $(outbound_mode_text)"
