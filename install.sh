@@ -630,7 +630,7 @@ warp_auto_register() {
   [ -n "$WARP_ENDPOINT_HOST" ] || WARP_ENDPOINT_HOST="engage.cloudflareclient.com"
   WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-2408}"
   write_warp_config
-  service_enable_start_best_effort "$WARP_SERVICE_NAME"
+  warp_service_enable_start
   WARP_ENABLED=1
   return 0
 }
@@ -2180,6 +2180,10 @@ update_apply() {
   write_config
   write_services
   write_links
+  if [ "$WARP_ENABLED" = "1" ] && warp_ready; then
+    write_warp_config
+    warp_service_enable_start
+  fi
   enable_services
   apply_port_hops
   if [ "$ENABLE_TEMP_ARGO" = "1" ]; then
