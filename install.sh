@@ -355,6 +355,39 @@ local_ipv4() {
   hostname -I 2>/dev/null | awk '{print $1}'
 }
 
+private_or_nat_ipv4() {
+  case "$1" in
+    10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|100.6[4-9].*|100.[7-9][0-9].*|100.1[0-1][0-9].*|100.12[0-7].*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+default_server_addr() {
+  if [ -n "$SERVER" ]; then
+    printf '%s\n' "$SERVER"
+    return 0
+  fi
+  public_v4="$(public_ip 2>/dev/null || true)"
+  public_v6="$(public_ipv6 2>/dev/null || true)"
+  if [ -n "$public_v4" ]; then
+    printf '%s\n' "$public_v4"
+    return 0
+  fi
+  printf '%s\n' "$public_v6"
+}
+
+nat_dual_stack_info() {
+  nat_local_v4="$(local_ipv4 2>/dev/null || true)"
+  nat_public_v4="$(public_ip 2>/dev/null || true)"
+  nat_public_v6="$(public_ipv6 2>/dev/null || true)"
+  [ -n "$nat_public_v4" ] || return 1
+  [ -n "$nat_public_v6" ] || return 1
+  [ -n "$nat_local_v4" ] || return 1
+  private_or_nat_ipv4 "$nat_local_v4" || return 1
+  [ "$nat_public_v4" != "$nat_local_v4" ] || return 1
+  return 0
+}
+
 local_ipv6() {
   if has ip; then
     ip -6 addr show scope global 2>/dev/null |
@@ -843,11 +876,7 @@ load_or_create_env() {
   fi
 
   if [ -z "${LB_SERVER:-}" ]; then
-    if has_public_ipv4; then
-      LB_SERVER="$(public_ip)"
-    else
-      LB_SERVER="$(public_ipv6)"
-    fi
+    LB_SERVER="$(default_server_addr)"
   fi
   [ -n "$LB_SERVER" ] || die "cannot detect public IPv4 or IPv6"
   LB_UUID="${LB_UUID:-$(uuid)}"
@@ -888,11 +917,7 @@ reset_identity() {
   fi
   apply_saved_settings
   if [ -z "${LB_SERVER:-}" ]; then
-    if has_public_ipv4; then
-      LB_SERVER="$(public_ip)"
-    else
-      LB_SERVER="$(public_ipv6)"
-    fi
+    LB_SERVER="$(default_server_addr)"
   fi
   [ -n "$LB_SERVER" ] || die "cannot detect public IPv4 or IPv6"
   LB_UUID="${CUSTOM_UUID:-}"
@@ -1773,6 +1798,46 @@ choose_firewall_action() {
   done
 }
 
+choose_nat_entry_addr() {
+  [ -z "$SERVER" ] || return 0
+  nat_dual_stack_info || return 0
+  while :; do
+    printf '\n'
+    log "检测到 NAT/CGNAT IPv4，同时存在公网 IPv6。"
+    log "本机 IPv4: $nat_local_v4"
+    log "公网 IPv4: $nat_public_v4"
+    log "公网 IPv6: $nat_public_v6"
+    log "1. 使用 IPv6 作为节点入口 (默认，适合无 IPv4 端口转发)"
+    log "2. 使用 IPv4 作为节点入口 (适合已有 IPv4 端口转发)"
+    log "3. 手动输入入口地址"
+    printf '请选择 [1-3] (默认 1): '
+    read -r entry_choice || exit 1
+    case "${entry_choice:-1}" in
+      1)
+        LB_SERVER="$nat_public_v6"
+        return 0
+        ;;
+      2)
+        LB_SERVER="$nat_public_v4"
+        return 0
+        ;;
+      3)
+        printf '请输入节点入口地址(IP 或域名): '
+        read -r custom_entry || exit 1
+        [ -n "$custom_entry" ] || {
+          log "入口地址不能为空。"
+          continue
+        }
+        LB_SERVER="$custom_entry"
+        return 0
+        ;;
+      *)
+        log "无效选择"
+        ;;
+    esac
+  done
+}
+
 warp_manage_menu() {
   while :; do
     printf '\n'
@@ -2360,6 +2425,7 @@ install_all() {
   log "正在安装 sing-box..."
   install_sing_box
   load_or_create_env
+  choose_nat_entry_addr
   log "正在准备 Cloudflare Argo 组件..."
   install_cloudflared
   log "正在生成证书和配置..."
