@@ -2,7 +2,6 @@
 set -eu
 
 NAME="litebox"
-SCRIPT_VERSION="1.0.1"
 HOP_PORTS_MAX=50
 BIN="/usr/local/bin/sing-box"
 CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
@@ -64,6 +63,7 @@ WARP_ENDPOINT_HOST="${WARP_ENDPOINT_HOST:-engage.cloudflareclient.com}"
 WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-2408}"
 WARP_ENABLED="${WARP_ENABLED:-0}"
 WARP_SPLIT_ENABLED="${WARP_SPLIT_ENABLED:-0}"
+WARP_SPLIT_RULES="${WARP_SPLIT_RULES:-}"
 WARP_CLIENT_VERSION="${WARP_CLIENT_VERSION:-a-6.11-2223}"
 
 log() { printf '%s\n' "$*"; }
@@ -96,6 +96,20 @@ file_sha256() {
     shasum -a 256 "$1" | awk '{print $1}'
   else
     die "missing sha256sum or shasum"
+  fi
+}
+
+short_hash() {
+  printf '%s' "$1" | cut -c1-7
+}
+
+current_script_hash() {
+  if [ -f "$CLI" ]; then
+    file_sha256 "$CLI" 2>/dev/null | cut -c1-7
+  elif [ -f "${BASH_SOURCE[0]:-$0}" ]; then
+    file_sha256 "${BASH_SOURCE[0]:-$0}" 2>/dev/null | cut -c1-7
+  else
+    printf 'unknown'
   fi
 }
 
@@ -424,6 +438,28 @@ nat_dual_stack_info() {
   return 0
 }
 
+cloud_public_ipv4_mapping() {
+  [ -n "${nat_local_v4:-}" ] || return 1
+  [ -n "${nat_public_v4:-}" ] || return 1
+  if curl -fsS --connect-timeout 1 --max-time 2 -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip" >/dev/null 2>&1; then
+    return 0
+  fi
+  if curl -fsS --connect-timeout 1 --max-time 2 \
+    "http://169.254.169.254/latest/meta-data/public-ipv4" >/dev/null 2>&1; then
+    return 0
+  fi
+  if curl -fsS --connect-timeout 1 --max-time 2 -H "Metadata:true" \
+    "http://169.254.169.254/metadata/instance?api-version=2021-02-01" >/dev/null 2>&1; then
+    return 0
+  fi
+  if curl -fsS --connect-timeout 1 --max-time 2 \
+    "http://100.100.100.200/latest/meta-data/eipv4" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
 local_ipv6() {
   if has ip; then
     ip -6 addr show scope global 2>/dev/null |
@@ -515,11 +551,85 @@ warp_status_text() {
 }
 
 warp_split_status_text() {
-  if [ "$WARP_SPLIT_ENABLED" = "1" ]; then
+  if [ -n "${WARP_SPLIT_RULES:-}" ]; then
     printf '已开启'
   else
     printf '未开启'
   fi
+}
+
+warp_split_all_rules() {
+  printf 'gemini claude openai tiktok x google telegram youtube netflix'
+}
+
+warp_split_rule_label() {
+  case "$1" in
+    gemini) printf 'Gemini' ;;
+    claude) printf 'Claude' ;;
+    openai) printf 'OpenAI / ChatGPT' ;;
+    tiktok) printf 'TikTok' ;;
+    x) printf 'Twitter / X' ;;
+    google) printf 'Google' ;;
+    telegram) printf 'Telegram' ;;
+    youtube) printf 'YouTube' ;;
+    netflix) printf 'Netflix' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+warp_split_rule_url() {
+  case "$1" in
+    gemini) printf 'https://github.com/vernette/rulesets/raw/master/srs/gemini.srs' ;;
+    claude) printf 'https://github.com/vernette/rulesets/raw/master/srs/claude.srs' ;;
+    openai) printf 'https://github.com/vernette/rulesets/raw/master/srs/openai.srs' ;;
+    tiktok) printf 'https://github.com/vernette/rulesets/raw/master/srs/tiktok.srs' ;;
+    x) printf 'https://github.com/vernette/rulesets/raw/master/srs/x.srs' ;;
+    google) printf 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs' ;;
+    telegram) printf 'https://github.com/vernette/rulesets/raw/master/srs/telegram.srs' ;;
+    youtube) printf 'https://github.com/vernette/rulesets/raw/master/srs/youtube.srs' ;;
+    netflix) printf 'https://github.com/vernette/rulesets/raw/master/srs/netflix.srs' ;;
+  esac
+}
+
+warp_split_rule_enabled() {
+  case " $WARP_SPLIT_RULES " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+warp_split_rule_status() {
+  if warp_split_rule_enabled "$1"; then
+    printf 'WARP'
+  else
+    printf '直连'
+  fi
+}
+
+warp_split_normalize_rules() {
+  normalized=""
+  for rule in $(warp_split_all_rules); do
+    if warp_split_rule_enabled "$rule"; then
+      normalized="${normalized:+$normalized }$rule"
+    fi
+  done
+  WARP_SPLIT_RULES="$normalized"
+  [ -n "$WARP_SPLIT_RULES" ] && WARP_SPLIT_ENABLED=1 || WARP_SPLIT_ENABLED=0
+}
+
+warp_split_toggle_rule() {
+  target="$1"
+  if warp_split_rule_enabled "$target"; then
+    new_rules=""
+    for rule in $WARP_SPLIT_RULES; do
+      [ "$rule" = "$target" ] && continue
+      new_rules="${new_rules:+$new_rules }$rule"
+    done
+    WARP_SPLIT_RULES="$new_rules"
+  else
+    WARP_SPLIT_RULES="${WARP_SPLIT_RULES:+$WARP_SPLIT_RULES }$target"
+  fi
+  warp_split_normalize_rules
 }
 
 vendor_short_name() {
@@ -884,6 +994,11 @@ apply_saved_settings() {
   WARP_ENDPOINT_PORT="${WARP_ENDPOINT_PORT:-${LB_WARP_ENDPOINT_PORT:-2408}}"
   WARP_ENABLED="${WARP_ENABLED:-${LB_WARP_ENABLED:-0}}"
   WARP_SPLIT_ENABLED="${WARP_SPLIT_ENABLED:-${LB_WARP_SPLIT_ENABLED:-0}}"
+  WARP_SPLIT_RULES="${WARP_SPLIT_RULES:-${LB_WARP_SPLIT_RULES:-}}"
+  if [ -z "$WARP_SPLIT_RULES" ] && [ "$WARP_SPLIT_ENABLED" = "1" ]; then
+    WARP_SPLIT_RULES="$(warp_split_all_rules)"
+  fi
+  warp_split_normalize_rules
 }
 
 save_env() {
@@ -921,6 +1036,7 @@ LB_WARP_ENDPOINT_HOST='$WARP_ENDPOINT_HOST'
 LB_WARP_ENDPOINT_PORT='$WARP_ENDPOINT_PORT'
 LB_WARP_ENABLED='$WARP_ENABLED'
 LB_WARP_SPLIT_ENABLED='$WARP_SPLIT_ENABLED'
+LB_WARP_SPLIT_RULES='$WARP_SPLIT_RULES'
 EOF
   chmod 600 "$ENV_FILE"
 }
@@ -1182,6 +1298,7 @@ disable_warp() {
   warp_service_disable_stop
   WARP_ENABLED=0
   WARP_SPLIT_ENABLED=0
+  WARP_SPLIT_RULES=""
 }
 
 delete_warp() {
@@ -1196,6 +1313,7 @@ delete_warp() {
   WARP_ENDPOINT_PORT="2408"
   WARP_ENABLED=0
   WARP_SPLIT_ENABLED=0
+  WARP_SPLIT_RULES=""
   if [ "$OUTBOUND_MODE" = "warp_ipv4" ]; then
     OUTBOUND_MODE="auto"
   fi
@@ -1254,64 +1372,41 @@ write_config() {
 EOF
 )"
   fi
-  if warp_ready && [ "$WARP_SPLIT_ENABLED" = "1" ]; then
-    warp_rule_set_block="$(cat <<EOF
+  warp_split_normalize_rules
+  if warp_ready && [ -n "$WARP_SPLIT_RULES" ]; then
+    first_rule=1
+    for rule in $WARP_SPLIT_RULES; do
+      rule_url="$(warp_split_rule_url "$rule")"
+      [ -n "$rule_url" ] || continue
+      if [ "$first_rule" -eq 1 ]; then
+        warp_rule_set_block="$(cat <<EOF
     {
       "type": "remote",
-      "tag": "warp-gemini",
+      "tag": "warp-$rule",
       "format": "binary",
-      "url": "https://github.com/vernette/rulesets/raw/master/srs/gemini.srs"
-    },
-    {
-      "type": "remote",
-      "tag": "warp-claude",
-      "format": "binary",
-      "url": "https://github.com/vernette/rulesets/raw/master/srs/claude.srs"
-    },
-    {
-      "type": "remote",
-      "tag": "warp-openai",
-      "format": "binary",
-      "url": "https://github.com/vernette/rulesets/raw/master/srs/openai.srs"
-    },
-    {
-      "type": "remote",
-      "tag": "warp-tiktok",
-      "format": "binary",
-      "url": "https://github.com/vernette/rulesets/raw/master/srs/tiktok.srs"
-    },
-    {
-      "type": "remote",
-      "tag": "warp-x",
-      "format": "binary",
-      "url": "https://github.com/vernette/rulesets/raw/master/srs/x.srs"
-    },
-    {
-      "type": "remote",
-      "tag": "warp-google",
-      "format": "binary",
-      "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/google.srs"
-    },
-    {
-      "type": "remote",
-      "tag": "warp-telegram",
-      "format": "binary",
-      "url": "https://github.com/vernette/rulesets/raw/master/srs/telegram.srs"
-    },
-    {
-      "type": "remote",
-      "tag": "warp-youtube",
-      "format": "binary",
-      "url": "https://github.com/vernette/rulesets/raw/master/srs/youtube.srs"
-    },
-    {
-      "type": "remote",
-      "tag": "warp-netflix",
-      "format": "binary",
-      "url": "https://github.com/vernette/rulesets/raw/master/srs/netflix.srs"
+      "url": "$rule_url"
     }
 EOF
 )"
+        warp_rule_names_block="$(printf '          "warp-%s"' "$rule")"
+        first_rule=0
+      else
+        warp_rule_set_block="$warp_rule_set_block$(cat <<EOF
+,
+    {
+      "type": "remote",
+      "tag": "warp-$rule",
+      "format": "binary",
+      "url": "$rule_url"
+    }
+EOF
+)"
+        warp_rule_names_block="$warp_rule_names_block,$(printf '\n          "warp-%s"' "$rule")"
+      fi
+    done
+    [ -n "$warp_rule_set_block" ] || WARP_SPLIT_RULES=""
+  fi
+  if warp_ready && [ -n "$WARP_SPLIT_RULES" ]; then
     warp_route_rules_block="$(cat <<EOF
     "rules": [
       {
@@ -1320,15 +1415,7 @@ EOF
       {
         "action": "route",
         "rule_set": [
-          "warp-gemini",
-          "warp-claude",
-          "warp-openai",
-          "warp-tiktok",
-          "warp-x",
-          "warp-google",
-          "warp-telegram",
-          "warp-youtube",
-          "warp-netflix"
+$warp_rule_names_block
         ],
         "outbound": "warp"
       }
@@ -2070,6 +2157,10 @@ choose_firewall_action() {
 choose_nat_entry_addr() {
   [ -z "$SERVER" ] || return 0
   nat_dual_stack_info || return 0
+  if cloud_public_ipv4_mapping; then
+    LB_SERVER="$nat_public_v4"
+    return 0
+  fi
   while :; do
     printf '\n'
     log "检测到 NAT/CGNAT IPv4，同时存在公网 IPv6。"
@@ -2107,6 +2198,61 @@ choose_nat_entry_addr() {
   done
 }
 
+apply_warp_split_change() {
+  warp_split_normalize_rules
+  if is_installed; then
+    save_env
+    progress_step 1 2 "正在更新 WARP 分流配置..."
+    apply_changes
+  else
+    save_env
+  fi
+  progress_step 2 2 "WARP 分流配置已更新"
+}
+
+warp_split_menu() {
+  warp_ready || die "请先安装或启用 WARP"
+  while :; do
+    printf '\n'
+    log "WARP 分流规则"
+    log "1. 全部规则走 WARP"
+    log "2. 全部规则直连"
+    idx=3
+    for rule in $(warp_split_all_rules); do
+      log "$idx. $(warp_split_rule_label "$rule") -> $(warp_split_rule_status "$rule")"
+      idx=$((idx + 1))
+    done
+    log "0. 返回上层"
+    printf '请选择 [0-11]: '
+    read -r action || exit 1
+    case "$action" in
+      1)
+        WARP_SPLIT_RULES="$(warp_split_all_rules)"
+        apply_warp_split_change
+        log "全部分流规则已设置为 WARP"
+        break
+        ;;
+      2)
+        WARP_SPLIT_RULES=""
+        apply_warp_split_change
+        log "全部分流规则已设置为直连"
+        break
+        ;;
+      3) warp_split_toggle_rule gemini; apply_warp_split_change; break ;;
+      4) warp_split_toggle_rule claude; apply_warp_split_change; break ;;
+      5) warp_split_toggle_rule openai; apply_warp_split_change; break ;;
+      6) warp_split_toggle_rule tiktok; apply_warp_split_change; break ;;
+      7) warp_split_toggle_rule x; apply_warp_split_change; break ;;
+      8) warp_split_toggle_rule google; apply_warp_split_change; break ;;
+      9) warp_split_toggle_rule telegram; apply_warp_split_change; break ;;
+      10) warp_split_toggle_rule youtube; apply_warp_split_change; break ;;
+      11) warp_split_toggle_rule netflix; apply_warp_split_change; break ;;
+      0) break ;;
+      *) log "无效选择" ;;
+    esac
+  done
+}
+
 warp_manage_menu() {
   while :; do
     printf '\n'
@@ -2116,10 +2262,9 @@ warp_manage_menu() {
     log "1. 安装或启用 WARP"
     log "2. 关闭 WARP"
     log "3. 删除 WARP"
-    log "4. 开启 WARP 分流规则"
-    log "5. 关闭 WARP 分流规则"
+    log "4. WARP 分流规则管理"
     log "0. 返回上层"
-    printf '请选择 [0-5]: '
+    printf '请选择 [0-4]: '
     read -r action || exit 1
     case "$action" in
       1)
@@ -2168,31 +2313,8 @@ warp_manage_menu() {
         break
         ;;
       4)
-        warp_ready || die "请先安装或启用 WARP"
-        WARP_SPLIT_ENABLED=1
-        if is_installed; then
-          save_env
-          progress_step 1 2 "正在更新 WARP 分流配置..."
-          apply_changes
-        else
-          save_env
-        fi
-        progress_step 2 2 "WARP 分流已开启"
-        log "WARP 分流规则已开启"
-        break
-        ;;
-      5)
-        WARP_SPLIT_ENABLED=0
-        if is_installed; then
-          save_env
-          progress_step 1 2 "正在关闭 WARP 分流配置..."
-          apply_changes
-        else
-          save_env
-        fi
-        progress_step 2 2 "WARP 分流已关闭"
-        log "WARP 分流规则已关闭"
-        break
+        warp_split_menu
+        continue
         ;;
       0) break ;;
       *) log "无效选择" ;;
@@ -2280,7 +2402,8 @@ update_script_only() {
   if [ -n "$current_hash" ] && [ "$current_hash" = "$remote_hash" ]; then
     rm -f "$tmp_script"
     printf '\n'
-    log "Litebox 项目无变化，当前脚本已是最新版本 $SCRIPT_VERSION。"
+    log "Litebox 项目无变化，当前脚本已是最新。"
+    log "本地版本: $(short_hash "$current_hash")，远程版本: $(short_hash "$remote_hash")"
     if is_installed; then
       log "正在同步当前安装配置和端口跳跃规则..."
       "$CLI" update-apply
@@ -2291,6 +2414,7 @@ update_script_only() {
     exec "$CLI" menu
   fi
   log "检测到 Litebox 项目有更新，正在安装新脚本..."
+  log "本地版本: ${current_hash:+$(short_hash "$current_hash")}，远程版本: $(short_hash "$remote_hash")"
   progress_step 2 4 "正在更新 Litebox 快捷脚本..."
   write_cli "$tmp_script"
   rm -f "$tmp_script"
@@ -2298,7 +2422,7 @@ update_script_only() {
   "$CLI" update-apply
   progress_step 4 4 "更新完成"
   printf '\n'
-  log "Litebox 脚本已更新到版本 $SCRIPT_VERSION。"
+  log "Litebox 脚本已更新到版本 $(short_hash "$remote_hash")。"
   if is_installed; then
     log "当前安装配置也已按新脚本重新生成。"
   fi
@@ -2689,7 +2813,7 @@ show_menu() {
   while :; do
     printf '\n'
     log "Litebox 快捷菜单"
-    log "版本: $SCRIPT_VERSION"
+    log "版本: $(current_script_hash)"
     current_ipv4="$(local_ipv4 || true)"
     current_ipv6="$(local_ipv6 || true)"
     if is_installed; then
