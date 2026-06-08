@@ -1052,6 +1052,9 @@ load_or_create_env() {
   if { [ -z "$WARP_PRIVATE_KEY" ] || [ -z "$WARP_IPV4" ] || [ -z "$WARP_IPV6" ] || [ -z "$WARP_PEER_PUBLIC_KEY" ]; } && [ -f "$WARP_CONF" ]; then
     load_warp_from_conf || true
   fi
+  if [ "$WARP_ENABLED" != "1" ] && [ -f "$WARP_CONF" ] && { [ "$OUTBOUND_MODE" = "warp_ipv4" ] || [ -n "$WARP_SPLIT_RULES" ]; }; then
+    load_warp_from_conf || true
+  fi
 
   if [ -z "${LB_SERVER:-}" ]; then
     LB_SERVER="$(default_server_addr)"
@@ -1387,7 +1390,8 @@ EOF
       "type": "remote",
       "tag": "warp-$rule",
       "format": "binary",
-      "url": "$rule_url"
+      "url": "$rule_url",
+      "download_detour": "direct"
     }
 EOF
 )"
@@ -1400,7 +1404,8 @@ EOF
       "type": "remote",
       "tag": "warp-$rule",
       "format": "binary",
-      "url": "$rule_url"
+      "url": "$rule_url",
+      "download_detour": "direct"
     }
 EOF
 )"
