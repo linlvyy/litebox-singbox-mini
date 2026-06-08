@@ -591,6 +591,20 @@ warp_split_rule_url() {
   esac
 }
 
+warp_split_rule_domains() {
+  case "$1" in
+    gemini) printf '%s\n' gemini.google.com generativelanguage.googleapis.com ai.google.dev makersuite.google.com ;;
+    claude) printf '%s\n' claude.ai anthropic.com ;;
+    openai) printf '%s\n' openai.com chatgpt.com chat.com sora.com oaiusercontent.com oaistatic.com ;;
+    tiktok) printf '%s\n' tiktok.com tiktokv.com tiktokcdn.com byteoversea.com ibytedtos.com ;;
+    x) printf '%s\n' x.com twitter.com twimg.com t.co ;;
+    google) printf '%s\n' google.com googleapis.com gstatic.com googleusercontent.com googlevideo.com googlesyndication.com ;;
+    telegram) printf '%s\n' telegram.org t.me tdesktop.com telegra.ph telegram.me ;;
+    youtube) printf '%s\n' youtube.com youtu.be youtube-nocookie.com ytimg.com googlevideo.com ;;
+    netflix) printf '%s\n' netflix.com netflix.net nflxext.com nflximg.com nflximg.net nflxso.net nflxvideo.net ;;
+  esac
+}
+
 warp_split_rule_enabled() {
   case " $WARP_SPLIT_RULES " in
     *" $1 "*) return 0 ;;
@@ -1339,6 +1353,9 @@ write_config() {
   warp_outbound_block=""
   warp_rule_set_block=""
   warp_route_rules_block=""
+  warp_domain_rule_block=""
+  warp_domain_suffix_block=""
+  warp_rule_names_block=""
   final_outbound="direct"
   auto_detect_interface=true
   case "$OUTBOUND_MODE" in
@@ -1381,11 +1398,21 @@ EOF
   fi
   if warp_ready && [ -n "$WARP_SPLIT_RULES" ]; then
     first_rule=1
+    first_domain=1
     for rule in $WARP_SPLIT_RULES; do
       rule_url="$(warp_split_rule_url "$rule")"
-      [ -n "$rule_url" ] || continue
-      if [ "$first_rule" -eq 1 ]; then
-        warp_rule_set_block="$(cat <<EOF
+      for domain in $(warp_split_rule_domains "$rule"); do
+        [ -n "$domain" ] || continue
+        if [ "$first_domain" -eq 1 ]; then
+          warp_domain_suffix_block="$(printf '          "%s"' "$domain")"
+          first_domain=0
+        else
+          warp_domain_suffix_block="$warp_domain_suffix_block,$(printf '\n          "%s"' "$domain")"
+        fi
+      done
+      if [ -n "$rule_url" ]; then
+        if [ "$first_rule" -eq 1 ]; then
+          warp_rule_set_block="$(cat <<EOF
     {
       "type": "remote",
       "tag": "warp-$rule",
@@ -1395,10 +1422,10 @@ EOF
     }
 EOF
 )"
-        warp_rule_names_block="$(printf '          "warp-%s"' "$rule")"
-        first_rule=0
-      else
-        warp_rule_set_block="$warp_rule_set_block$(cat <<EOF
+          warp_rule_names_block="$(printf '          "warp-%s"' "$rule")"
+          first_rule=0
+        else
+          warp_rule_set_block="$warp_rule_set_block$(cat <<EOF
 ,
     {
       "type": "remote",
@@ -1409,17 +1436,31 @@ EOF
     }
 EOF
 )"
-        warp_rule_names_block="$warp_rule_names_block,$(printf '\n          "warp-%s"' "$rule")"
+          warp_rule_names_block="$warp_rule_names_block,$(printf '\n          "warp-%s"' "$rule")"
+        fi
       fi
     done
     [ -n "$warp_rule_set_block" ] || WARP_SPLIT_RULES=""
   fi
   if warp_ready && [ -n "$WARP_SPLIT_RULES" ]; then
+    if [ -n "${warp_domain_suffix_block:-}" ]; then
+      warp_domain_rule_block="$(cat <<EOF
+      {
+        "action": "route",
+        "domain_suffix": [
+$warp_domain_suffix_block
+        ],
+        "outbound": "warp"
+      },
+EOF
+)"
+    fi
     warp_route_rules_block="$(cat <<EOF
     "rules": [
       {
         "action": "sniff"
       },
+$warp_domain_rule_block
       {
         "action": "route",
         "rule_set": [
@@ -2368,8 +2409,6 @@ switch_outbound_menu() {
       *) log "无效选择"; continue ;;
     esac
     if [ "$action" != "0" ] && [ "$action" != "7" ]; then
-      WARP_SPLIT_ENABLED=0
-      WARP_SPLIT_RULES=""
       if is_installed; then
         save_env
         apply_changes
