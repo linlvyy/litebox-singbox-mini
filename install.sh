@@ -1356,6 +1356,10 @@ write_config() {
     direct_strategy="prefer_ipv6"
     auto_detect_interface=false
   fi
+  warp_split_normalize_rules
+  if warp_ready && { [ "$OUTBOUND_MODE" = "warp_ipv4" ] || [ -n "$WARP_SPLIT_RULES" ]; }; then
+    auto_detect_interface=false
+  fi
   direct_domain_resolver="$(printf ',\n      "domain_resolver": {\n        "server": "litebox-dns",\n        "strategy": "%s"\n      }' "$direct_strategy")"
   if warp_ready; then
     warp_outbound_block="$(cat <<EOF
@@ -1372,7 +1376,6 @@ write_config() {
 EOF
 )"
   fi
-  warp_split_normalize_rules
   if warp_ready && [ -n "$WARP_SPLIT_RULES" ]; then
     first_rule=1
     for rule in $WARP_SPLIT_RULES; do
