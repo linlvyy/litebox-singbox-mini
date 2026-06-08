@@ -2368,6 +2368,8 @@ switch_outbound_menu() {
       *) log "无效选择"; continue ;;
     esac
     if [ "$action" != "0" ] && [ "$action" != "7" ]; then
+      WARP_SPLIT_ENABLED=0
+      WARP_SPLIT_RULES=""
       if is_installed; then
         save_env
         apply_changes
