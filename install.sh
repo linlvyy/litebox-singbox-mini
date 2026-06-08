@@ -178,7 +178,12 @@ service_enable_start() {
   name="$1"
   case "$INIT_SYSTEM" in
     systemd)
-      systemctl enable --now "$name"
+      systemctl enable "$name"
+      if systemctl is-active --quiet "$name"; then
+        systemctl restart "$name"
+      else
+        systemctl start "$name"
+      fi
       ;;
     openrc)
       rc-update add "$name" default >/dev/null 2>&1 || true
@@ -212,7 +217,12 @@ service_enable_start_best_effort() {
   name="$1"
   case "$INIT_SYSTEM" in
     systemd)
-      systemctl enable --now "$name" >/dev/null 2>&1 || true
+      systemctl enable "$name" >/dev/null 2>&1 || true
+      if systemctl is-active --quiet "$name" >/dev/null 2>&1; then
+        systemctl restart "$name" >/dev/null 2>&1 || true
+      else
+        systemctl start "$name" >/dev/null 2>&1 || true
+      fi
       ;;
     openrc)
       rc-update add "$name" default >/dev/null 2>&1 || true
