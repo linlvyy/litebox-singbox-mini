@@ -1353,6 +1353,8 @@ write_config() {
   warp_outbound_block=""
   warp_rule_set_block=""
   warp_route_rules_block=""
+  warp_domain_exact_block=""
+  warp_domain_exact_rule_block=""
   warp_domain_rule_block=""
   warp_domain_suffix_block=""
   warp_rule_names_block=""
@@ -1404,9 +1406,11 @@ EOF
       for domain in $(warp_split_rule_domains "$rule"); do
         [ -n "$domain" ] || continue
         if [ "$first_domain" -eq 1 ]; then
+          warp_domain_exact_block="$(printf '          "%s"' "$domain")"
           warp_domain_suffix_block="$(printf '          "%s"' "$domain")"
           first_domain=0
         else
+          warp_domain_exact_block="$warp_domain_exact_block,$(printf '\n          "%s"' "$domain")"
           warp_domain_suffix_block="$warp_domain_suffix_block,$(printf '\n          "%s"' "$domain")"
         fi
       done
@@ -1443,6 +1447,18 @@ EOF
     [ -n "$warp_rule_set_block" ] || WARP_SPLIT_RULES=""
   fi
   if warp_ready && [ -n "$WARP_SPLIT_RULES" ]; then
+    if [ -n "${warp_domain_exact_block:-}" ]; then
+      warp_domain_exact_rule_block="$(cat <<EOF
+      {
+        "action": "route",
+        "domain": [
+$warp_domain_exact_block
+        ],
+        "outbound": "warp"
+      },
+EOF
+)"
+    fi
     if [ -n "${warp_domain_suffix_block:-}" ]; then
       warp_domain_rule_block="$(cat <<EOF
       {
@@ -1460,6 +1476,7 @@ EOF
       {
         "action": "sniff"
       },
+$warp_domain_exact_rule_block
 $warp_domain_rule_block
       {
         "action": "route",
