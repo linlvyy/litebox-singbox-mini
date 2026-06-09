@@ -221,13 +221,13 @@ ENABLE_TEMP_ARGO=1 sudo -E ./install.sh
 sudo litebox logs
 ```
 
-临时 Argo 的 VMess 节点现在会自动处理：
+Argo 的 VMess WebSocket 节点会自动处理：
 
-- `add` 使用 `saas.sin.fan`
+- `add` 使用优选域名 `saas.sin.fan`
 - `port` 使用 `8443`
-- `host` 自动抓取当前 `trycloudflare.com` 域名
+- `host` 自动使用当前固定 Argo 域名或临时 `trycloudflare.com` 域名
 - `path` 自动使用 `$UUID-vm`
-- `sni` 跟随真实临时隧道域名
+- `sni` 跟随真实 Argo 域名
 
 重置临时 Argo 后，脚本会主动等待真实 HOST，并在菜单和节点信息里显示。
 

@@ -1885,18 +1885,7 @@ Hysteria2:
 $hy2
 EOF
   if argo_host="$(argo_export_host)"; then
-    if [ -n "$ARGO_DOMAIN" ]; then
-      vmess_add="$ARGO_DOMAIN"
-      vmess_port="443"
-      vmess_host="$ARGO_DOMAIN"
-      vmess_sni="$ARGO_DOMAIN"
-    else
-      vmess_add="saas.sin.fan"
-      vmess_port="8443"
-      vmess_host="$argo_host"
-      vmess_sni="$argo_host"
-    fi
-    vmess_json="$(printf '{"v":"2","ps":"%s-vmess-argo","add":"%s","port":"%s","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s","fp":"chrome"}' "$node_prefix" "$vmess_add" "$vmess_port" "$LB_UUID" "$vmess_host" "$vmess_path" "$vmess_sni" | b64_nowrap)"
+    vmess_json="$(printf '{"v":"2","ps":"%s-vmess-argo","add":"saas.sin.fan","port":"8443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s","fp":"chrome"}' "$node_prefix" "$LB_UUID" "$argo_host" "$vmess_path" "$argo_host" | b64_nowrap)"
     cat >>"$LINKS_FILE" <<EOF
 
 VMess-WS-Argo:
@@ -2547,6 +2536,7 @@ change_ports_menu() {
       1)
         set_default_ports
         if is_installed; then
+          save_env
           apply_changes
         fi
         if is_installed; then
@@ -2563,6 +2553,7 @@ change_ports_menu() {
         HY2_PORT="$(prompt_port 'Hysteria2 端口' "$HY2_PORT")"
         VMESS_LOCAL_PORT="$(prompt_port 'WS 本地端口(仅 127.0.0.1)' "$VMESS_LOCAL_PORT")"
         if is_installed; then
+          save_env
           apply_changes
         fi
         if is_installed; then
@@ -2575,6 +2566,7 @@ change_ports_menu() {
       3)
         TUIC_HOP_PORTS="$(prompt_hop_ports 'TUIC v5 跳跃端口(单端口/范围，0 关闭，最多 50 个端口)' "$TUIC_HOP_PORTS")"
         if is_installed; then
+          save_env
           apply_changes
           display_links_screen "端口已更新"
         else
@@ -2585,6 +2577,7 @@ change_ports_menu() {
       4)
         HY2_HOP_PORTS="$(prompt_hop_ports 'Hysteria2 跳跃端口(单端口/范围，0 关闭，最多 50 个端口)' "$HY2_HOP_PORTS")"
         if is_installed; then
+          save_env
           apply_changes
           display_links_screen "端口已更新"
         else
@@ -2612,6 +2605,7 @@ set_argo_temp() {
   ARGO_TOKEN=""
   ARGO_DOMAIN=""
   ENABLE_TEMP_ARGO=1
+  save_env
   apply_changes
   log "已启用临时 Argo。"
 }
@@ -2626,6 +2620,7 @@ set_argo_fixed() {
   ARGO_TOKEN="$token"
   ARGO_DOMAIN="$domain"
   ENABLE_TEMP_ARGO=0
+  save_env
   apply_changes
   log "已启用固定 Argo。"
 }
@@ -2634,6 +2629,7 @@ disable_argo() {
   ARGO_TOKEN=""
   ARGO_DOMAIN=""
   ENABLE_TEMP_ARGO=0
+  save_env
   apply_changes
   log "已关闭 Argo。"
 }
@@ -2646,6 +2642,7 @@ disable_temp_argo() {
   ARGO_TOKEN=""
   ARGO_DOMAIN=""
   ENABLE_TEMP_ARGO=0
+  save_env
   apply_changes
   log "已停止 Argo 临时隧道。"
 }
@@ -2658,6 +2655,7 @@ disable_fixed_argo() {
   ARGO_TOKEN=""
   ARGO_DOMAIN=""
   ENABLE_TEMP_ARGO=0
+  save_env
   apply_changes
   log "已停止 Argo 固定隧道。"
 }
