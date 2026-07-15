@@ -996,7 +996,7 @@ validate_security_settings() {
 }
 
 apply_saved_settings() {
-  REALITY_SNI="${REALITY_SNI:-${LB_REALITY_SNI:-www.microsoft.com}}"
+  REALITY_SNI="${REALITY_SNI:-${LB_REALITY_SNI:-www.yahoo.com}}"
   TLS_SNI="${TLS_SNI:-${LB_TLS_SNI:-bing.com}}"
   VMESS_WS_PATH="${VMESS_WS_PATH:-${LB_VMESS_WS_PATH:-}}"
   ARGO_DOMAIN="${ARGO_DOMAIN:-${LB_ARGO_DOMAIN:-}}"

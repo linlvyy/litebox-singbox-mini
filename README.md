@@ -196,7 +196,7 @@ Litebox 会在 sing-box 配置里写入轻量 DNS，默认使用 IPv4 DNS，IPv6
 
 ```bash
 SERVER=1.2.3.4 \
-REALITY_SNI=www.microsoft.com \
+REALITY_SNI=www.yahoo.com \
 TLS_SNI=bing.com \
 ANYTLS_PORT=24567 \
 TUIC_PORT=33456 \
@@ -267,7 +267,7 @@ Argo 的 VMess WebSocket 节点会自动处理：
 
 ## 安全边界
 
-- `VLESS Reality` 默认伪装域名是 `www.microsoft.com`，不使用 Cloudflare 域名。
+- `VLESS Reality` 默认伪装域名是 `www.yahoo.com`，不使用 Cloudflare 域名。
 - 脚本会拒绝把 `cloudflare.com`、`trycloudflare.com`、`workers.dev`、`pages.dev`、`cloudflare-ech.com`、`saas.sin.fan` 用作 Reality 伪装域名，避免被误配成 Cloudflare/Argo/优选域名。
 - `VMess WS` 只监听 `127.0.0.1`，公网不会直接开放 VMess 端口，只通过 Argo 隧道访问。
 - `TUIC v5`、`Hysteria2` 和端口跳跃端口都是 UDP 转发到对应协议端口，协议本身仍需要 UUID/密码认证。
