@@ -30,6 +30,7 @@ RUN_LITEBOX="$BASE_DIR/run-litebox.sh"
 RUN_ARGO="$BASE_DIR/run-argo.sh"
 MAIN_LOG="$BASE_DIR/litebox.log"
 ARGO_LOG="$BASE_DIR/argo.log"
+NETWORK_TUNING_CONF="/etc/sysctl.d/99-litebox-network.conf"
 LITEBOX_PID="/run/litebox.pid"
 ARGO_PID="/run/litebox-argo.pid"
 INIT_SYSTEM=""
@@ -171,6 +172,37 @@ service_reload() {
     openrc) true ;;
     *) die "unsupported init system: need systemd or openrc" ;;
   esac
+}
+
+apply_network_tuning() {
+  # Keep the limits useful for QUIC without reserving memory on small VPSes.
+  has sysctl || return 0
+  mkdir -p "$(dirname "$NETWORK_TUNING_CONF")"
+  cat >"$NETWORK_TUNING_CONF" <<'EOF'
+# Managed by Litebox. Suitable for low-memory VPSes running QUIC protocols.
+net.core.default_qdisc = fq
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.core.netdev_max_backlog = 16384
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.udp_rmem_min = 16384
+net.ipv4.udp_wmem_min = 16384
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_slow_start_after_idle = 0
+EOF
+  sysctl -p "$NETWORK_TUNING_CONF" >/dev/null 2>&1 || true
+
+  # BBR benefits from the pacing provided by fq. Do not overwrite custom qdiscs.
+  if has tc; then
+    for dev in $(ip -o link show up 2>/dev/null | awk -F': ' '$2 != "lo" {print $2}' | cut -d@ -f1); do
+      if tc qdisc show dev "$dev" 2>/dev/null | grep -q '^qdisc fq_codel '; then
+        tc qdisc replace dev "$dev" root fq >/dev/null 2>&1 || true
+      fi
+    done
+  fi
 }
 
 service_enable_start() {
@@ -1959,6 +1991,7 @@ apply_changes() {
   need_root
   progress_step 1 4 "正在更新 Litebox 配置..."
   load_or_create_env
+  apply_network_tuning
   install_cloudflared
   gen_cert
   save_env
@@ -2500,6 +2533,7 @@ update_apply() {
   need_root
   is_installed || exit 0
   load_or_create_env
+  apply_network_tuning
   gen_cert
   save_env
   write_config
@@ -2963,6 +2997,7 @@ install_all() {
   progress_step 1 8 "正在检查运行环境..."
   install_base_deps
   install_deps_hint
+  apply_network_tuning
   maybe_warn_ipv6_only_no_nat64
   progress_step 2 8 "正在安装 sing-box..."
   install_sing_box
