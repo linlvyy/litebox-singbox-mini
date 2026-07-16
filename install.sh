@@ -55,6 +55,12 @@ VMESS_LOCAL_PORT="${VMESS_LOCAL_PORT:-}"
 OUTBOUND_MODE="${OUTBOUND_MODE:-}"
 CUSTOM_UUID="${CUSTOM_UUID:-}"
 FIREWALL_ACTION="${FIREWALL_ACTION:-1}"
+HOME_SOCKS_HOST="${HOME_SOCKS_HOST:-}"
+HOME_SOCKS_USERNAME="${HOME_SOCKS_USERNAME:-}"
+HOME_SOCKS_PASSWORD="${HOME_SOCKS_PASSWORD:-}"
+HOME_SOCKS_PORTS="${HOME_SOCKS_PORTS:-}"
+HOME_SOCKS_UUID="${HOME_SOCKS_UUID:-}"
+HOME_SOCKS_INTERVAL="${HOME_SOCKS_INTERVAL:-}"
 TUIC_HOP_PORTS="${TUIC_HOP_PORTS:-}"
 HY2_HOP_PORTS="${HY2_HOP_PORTS:-}"
 WARP_PRIVATE_KEY="${WARP_PRIVATE_KEY:-}"
@@ -1044,6 +1050,12 @@ apply_saved_settings() {
   OUTBOUND_MODE="${OUTBOUND_MODE:-${LB_OUTBOUND_MODE:-auto}}"
   TUIC_HOP_PORTS="${TUIC_HOP_PORTS:-${LB_TUIC_HOP_PORTS:-}}"
   HY2_HOP_PORTS="${HY2_HOP_PORTS:-${LB_HY2_HOP_PORTS:-}}"
+  HOME_SOCKS_HOST="${HOME_SOCKS_HOST:-${LB_HOME_SOCKS_HOST:-}}"
+  HOME_SOCKS_USERNAME="${HOME_SOCKS_USERNAME:-${LB_HOME_SOCKS_USERNAME:-}}"
+  HOME_SOCKS_PASSWORD="${HOME_SOCKS_PASSWORD:-${LB_HOME_SOCKS_PASSWORD:-}}"
+  HOME_SOCKS_PORTS="${HOME_SOCKS_PORTS:-${LB_HOME_SOCKS_PORTS:-}}"
+  HOME_SOCKS_UUID="${HOME_SOCKS_UUID:-${LB_HOME_SOCKS_UUID:-}}"
+  HOME_SOCKS_INTERVAL="${HOME_SOCKS_INTERVAL:-${LB_HOME_SOCKS_INTERVAL:-30s}}"
   WARP_PRIVATE_KEY="${WARP_PRIVATE_KEY:-${LB_WARP_PRIVATE_KEY:-}}"
   WARP_IPV4="${WARP_IPV4:-${LB_WARP_IPV4:-}}"
   WARP_IPV6="${WARP_IPV6:-${LB_WARP_IPV6:-}}"
@@ -1086,6 +1098,12 @@ LB_VMESS_LOCAL_PORT='$VMESS_LOCAL_PORT'
 LB_OUTBOUND_MODE='$OUTBOUND_MODE'
 LB_TUIC_HOP_PORTS='$TUIC_HOP_PORTS'
 LB_HY2_HOP_PORTS='$HY2_HOP_PORTS'
+LB_HOME_SOCKS_HOST='$HOME_SOCKS_HOST'
+LB_HOME_SOCKS_USERNAME='$HOME_SOCKS_USERNAME'
+LB_HOME_SOCKS_PASSWORD='$HOME_SOCKS_PASSWORD'
+LB_HOME_SOCKS_PORTS='$HOME_SOCKS_PORTS'
+LB_HOME_SOCKS_UUID='$HOME_SOCKS_UUID'
+LB_HOME_SOCKS_INTERVAL='$HOME_SOCKS_INTERVAL'
 LB_WARP_PRIVATE_KEY='$WARP_PRIVATE_KEY'
 LB_WARP_IPV4='$WARP_IPV4'
 LB_WARP_IPV6='$WARP_IPV6'
@@ -1439,13 +1457,22 @@ gen_cert() {
     -subj "/CN=$TLS_SNI" >/dev/null 2>&1
 }
 
+home_socks_ready() {
+  [ -n "$HOME_SOCKS_HOST" ] &&
+    [ -n "$HOME_SOCKS_USERNAME" ] &&
+    [ -n "$HOME_SOCKS_PASSWORD" ] &&
+    [ -n "$HOME_SOCKS_PORTS" ] &&
+    uuid_valid "$HOME_SOCKS_UUID" &&
+    printf '%s\n' "$HOME_SOCKS_INTERVAL" | grep -Eq '^[1-9][0-9]*[smh]$'
+}
+
 write_config() {
   dns_strategy="prefer_ipv4"
   dns_server="1.1.1.1"
   direct_strategy="prefer_ipv4"
   warp_outbound_block=""
   warp_rule_set_block=""
-  warp_route_rules_block=""
+  route_rules_block=""
   warp_domain_exact_block=""
   warp_domain_exact_rule_block=""
   warp_domain_rule_block=""
@@ -1453,6 +1480,9 @@ write_config() {
   warp_rule_names_block=""
   final_outbound="direct"
   auto_detect_interface=true
+  home_socks_vmess_user_block=""
+  home_socks_outbound_block=""
+  home_socks_route_rule_block=""
   case "$OUTBOUND_MODE" in
     prefer_ipv6|ipv6_only)
       dns_strategy="$OUTBOUND_MODE"
@@ -1470,6 +1500,66 @@ write_config() {
     dns_server="2606:4700:4700::1111"
     direct_strategy="prefer_ipv6"
     auto_detect_interface=false
+  fi
+  if home_socks_ready; then
+    home_socks_vmess_user_block="$(cat <<EOF
+,
+        {
+          "name": "home-socks-auto",
+          "uuid": "$HOME_SOCKS_UUID",
+          "alterId": 0
+        }
+EOF
+)"
+    home_socks_outbounds=""
+    home_socks_tags=""
+    oldifs="$IFS"
+    IFS=','
+    for home_socks_port in $HOME_SOCKS_PORTS; do
+      [ -n "$home_socks_port" ] || continue
+      home_socks_tag="home-socks-$home_socks_port"
+      home_socks_outbounds="$home_socks_outbounds$(cat <<EOF
+,
+    {
+      "type": "socks",
+      "tag": "$home_socks_tag",
+      "server": "$HOME_SOCKS_HOST",
+      "server_port": $home_socks_port,
+      "version": "5",
+      "username": "$HOME_SOCKS_USERNAME",
+      "password": "$HOME_SOCKS_PASSWORD"
+    }
+EOF
+)"
+      if [ -n "$home_socks_tags" ]; then
+        home_socks_tags="$home_socks_tags, \"$home_socks_tag\""
+      else
+        home_socks_tags="\"$home_socks_tag\""
+      fi
+    done
+    IFS="$oldifs"
+    home_socks_outbound_block="$(cat <<EOF
+$home_socks_outbounds,
+    {
+      "type": "urltest",
+      "tag": "home-socks-auto",
+      "outbounds": [$home_socks_tags],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "$HOME_SOCKS_INTERVAL",
+      "tolerance": 100,
+      "interrupt_exist_connections": true
+    }
+EOF
+)"
+    home_socks_route_rule_block="$(cat <<EOF
+      {
+        "action": "route",
+        "inbound": ["vmess-ws-argo"],
+        "auth_user": ["home-socks-auto"],
+        "outbound": "home-socks-auto"
+      },
+EOF
+)"
   fi
   warp_split_normalize_rules
   if warp_ready && { [ "$OUTBOUND_MODE" = "warp_ipv4" ] || [ -n "$WARP_SPLIT_RULES" ]; }; then
@@ -1564,8 +1654,9 @@ $warp_domain_suffix_block
 EOF
 )"
     fi
-    warp_route_rules_block="$(cat <<EOF
+    route_rules_block="$(cat <<EOF
     "rules": [
+$home_socks_route_rule_block
       {
         "action": "sniff"
       },
@@ -1581,6 +1672,14 @@ $warp_rule_names_block
     ],
     "rule_set": [
       $warp_rule_set_block
+    ],
+EOF
+)"
+  fi
+  if [ -n "$home_socks_route_rule_block" ] && [ -z "$route_rules_block" ]; then
+    route_rules_block="$(cat <<EOF
+    "rules": [
+${home_socks_route_rule_block%,}
     ],
 EOF
 )"
@@ -1713,7 +1812,7 @@ $dns_block
           "name": "$NAME",
           "uuid": "$LB_UUID",
           "alterId": 0
-        }
+        }$home_socks_vmess_user_block
       ],
       "transport": {
         "type": "ws",
@@ -1729,11 +1828,11 @@ $dns_block
     {
       "type": "block",
       "tag": "block"
-    }$warp_outbound_block
+    }$warp_outbound_block$home_socks_outbound_block
   ],
   "route": {
     "auto_detect_interface": $auto_detect_interface,
-${warp_route_rules_block}
+${route_rules_block}
     "final": "$final_outbound"
   }
 }
@@ -1974,6 +2073,14 @@ EOF
 VMess-WS-Argo:
 vmess://$vmess_json
 EOF
+    if home_socks_ready; then
+      home_vmess_json="$(printf '{"v":"2","ps":"%s-home-auto","add":"saas.sin.fan","port":"8443","id":"%s","aid":"0","scy":"auto","net":"ws","type":"none","host":"%s","path":"%s","tls":"tls","sni":"%s","fp":"chrome"}' "$node_prefix" "$HOME_SOCKS_UUID" "$argo_host" "$vmess_path" "$argo_host" | b64_nowrap)"
+      cat >>"$LINKS_FILE" <<EOF
+
+VMess-WS-Argo-Home-Auto:
+vmess://$home_vmess_json
+EOF
+    fi
   fi
   cat >>"$LINKS_FILE" <<EOF
 
