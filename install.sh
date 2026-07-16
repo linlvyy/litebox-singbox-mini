@@ -1943,17 +1943,22 @@ EOF
 
 write_cli() {
   cli_source="${1:-}"
-  if [ -n "$cli_source" ]; then
+  if [ -n "$cli_source" ] && [ -f "$cli_source" ] && [ -s "$cli_source" ]; then
     install -m 0755 "$cli_source" "$CLI"
-  elif ! curl -fsSL "$SCRIPT_URL" -o "$CLI"; then
-    self_path="$0"
-    if [ -r "$self_path" ] && [ "$(basename "$self_path")" != "bash" ]; then
-      install -m 0755 "$self_path" "$CLI"
-    else
-      die "cannot install litebox cli"
-    fi
   else
-    chmod 0755 "$CLI"
+    tmp_cli="$(mktemp)"
+    if curl -fsSL "$SCRIPT_URL" -o "$tmp_cli" && [ -s "$tmp_cli" ]; then
+      install -m 0755 "$tmp_cli" "$CLI"
+      rm -f "$tmp_cli"
+    else
+      rm -f "$tmp_cli"
+      self_path="$0"
+      if [ -f "$self_path" ] && [ -s "$self_path" ] && [ "$(basename "$self_path")" != "bash" ]; then
+        install -m 0755 "$self_path" "$CLI"
+      else
+        die "cannot install litebox cli"
+      fi
+    fi
   fi
   rm -f "$OLD_SB_CLI"
   ln -sf "$CLI" "$LB_CLI"
