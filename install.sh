@@ -1291,9 +1291,20 @@ install_cloudflared() {
       "https://pkg.cloudflare.com/cloudflare-main.gpg" -o "$keyring" &&
       printf '%s\n' "deb [signed-by=$keyring] https://pkg.cloudflare.com/cloudflared any main" >"$source_list" &&
       apt-get update && apt-get install -y cloudflared; then
-      found="$(command -v cloudflared || true)"
+      found=""
+      for candidate in /usr/bin/cloudflared /usr/local/sbin/cloudflared /usr/sbin/cloudflared; do
+        if [ -x "$candidate" ]; then
+          found="$candidate"
+          break
+        fi
+      done
+      if [ -z "$found" ]; then
+        found="$(command -v cloudflared || true)"
+      fi
       if [ -n "$found" ] && [ -x "$found" ]; then
-        ln -sf "$found" "$CLOUDFLARED_BIN"
+        if [ "$found" != "$CLOUDFLARED_BIN" ]; then
+          ln -sfn "$found" "$CLOUDFLARED_BIN"
+        fi
         rm -f "$CF_MARKER"
         return 0
       fi
