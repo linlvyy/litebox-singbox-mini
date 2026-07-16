@@ -450,7 +450,7 @@ local_ipv4() {
 
 private_or_nat_ipv4() {
   case "$1" in
-    10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|100.6[4-9].*|100.[7-9][0-9].*|100.1[0-1][0-9].*|100.12[0-7].*) return 0 ;;
+    10.*|192.0.0.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|100.6[4-9].*|100.[7-9][0-9].*|100.1[0-1][0-9].*|100.12[0-7].*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -2932,6 +2932,9 @@ show_menu() {
     log "版本: $(current_script_hash)"
     current_ipv4="$(local_ipv4 || true)"
     current_ipv6="$(local_ipv6 || true)"
+    if [ -n "$current_ipv4" ] && private_or_nat_ipv4 "$current_ipv4"; then
+      current_ipv4=""
+    fi
     if is_installed; then
       load_or_create_env
     else
