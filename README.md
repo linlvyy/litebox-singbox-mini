@@ -45,6 +45,18 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
+IPv6-only VPS 说明：
+
+- 菜单会将不存在的 IPv4 明确显示为 `无`。
+- 默认从 GitHub Release 下载 sing-box；下载请求包含连接和总时限，不会无限卡住。
+- 如果 VPS 无法访问 GitHub Release，可以先将官方 `sing-box` Linux 压缩包上传到服务器，再指定本地或可访问的下载地址安装：
+
+```bash
+SING_BOX_URL='file:///tmp/sing-box-linux-amd64.tar.gz' sudo -E ./install.sh
+```
+
+默认下载的压缩包只保存在临时目录，安装成功后会自动清理。
+
 ## 快捷命令
 
 安装完成后，快捷管理命令是：

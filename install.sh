@@ -38,6 +38,7 @@ OS_ID=""
 OS_LIKE=""
 
 SING_BOX_VERSION="${SING_BOX_VERSION:-latest}"
+SING_BOX_URL="${SING_BOX_URL:-}"
 SERVER="${SERVER:-}"
 REALITY_SNI="${REALITY_SNI:-}"
 TLS_SNI="${TLS_SNI:-}"
@@ -886,7 +887,7 @@ enable_warp_auto_or_manual() {
 download_url() {
   repo="$1"
   pattern="$2"
-  curl -fsSL "https://api.github.com/repos/$repo/releases/latest" |
+  curl -fsSL --connect-timeout 10 --max-time 60 --retry 2 "https://api.github.com/repos/$repo/releases/latest" |
     sed -n 's/.*"browser_download_url": "\(.*\)".*/\1/p' |
     grep "$pattern" | head -n 1
 }
@@ -903,7 +904,7 @@ release_asset_urls() {
     esac
     api_url="https://api.github.com/repos/$repo/releases/tags/$tag"
   fi
-  curl -fsSL "$api_url" |
+  curl -fsSL --connect-timeout 10 --max-time 60 --retry 2 "$api_url" |
     sed -n 's/.*"browser_download_url": "\(.*\)".*/\1/p'
 }
 
@@ -956,7 +957,8 @@ install_port_hop_deps() {
 }
 
 is_installed() {
-  [ -x "$BIN" ] && [ -f "$CONF" ] && [ -f "$ENV_FILE" ]
+  # A missing binary is a recoverable broken install, not an uninstalled system.
+  [ -f "$CONF" ] && [ -f "$ENV_FILE" ]
 }
 
 require_installed() {
@@ -1200,21 +1202,25 @@ install_sing_box() {
     rm -f "$BIN"
   fi
   tmp="$(mktemp -d)"
-  urls="$(release_asset_urls SagerNet/sing-box "$SING_BOX_VERSION")"
-  exact_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}\.tar\.gz$" | head -n 1)"
-  musl_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-musl\.tar\.gz$" | head -n 1)"
-  anylinux_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-anylinux\.tar\.gz$" | head -n 1)"
-  other_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}[^/]*\.tar\.gz$" | grep -Ev "(linux-${arch}|-glibc|-gnu)\.tar\.gz$" | head -n 1)"
-  glibc_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-(glibc|gnu)\.tar\.gz$" | head -n 1)"
-
-  if is_alpine; then
-    url="${musl_url:-${anylinux_url:-$other_url}}"
+  if [ -n "$SING_BOX_URL" ]; then
+    url="$SING_BOX_URL"
   else
-    url="${exact_url:-${other_url:-${glibc_url:-${musl_url:-$anylinux_url}}}}"
+    urls="$(release_asset_urls SagerNet/sing-box "$SING_BOX_VERSION")"
+    exact_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}\.tar\.gz$" | head -n 1)"
+    musl_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-musl\.tar\.gz$" | head -n 1)"
+    anylinux_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-anylinux\.tar\.gz$" | head -n 1)"
+    other_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}[^/]*\.tar\.gz$" | grep -Ev "(linux-${arch}|-glibc|-gnu)\.tar\.gz$" | head -n 1)"
+    glibc_url="$(printf '%s\n' "$urls" | grep -E "/sing-box-[^/]+-linux-${arch}-(glibc|gnu)\.tar\.gz$" | head -n 1)"
+
+    if is_alpine; then
+      url="${musl_url:-${anylinux_url:-$other_url}}"
+    else
+      url="${exact_url:-${other_url:-${glibc_url:-${musl_url:-$anylinux_url}}}}"
+    fi
   fi
   [ -n "$url" ] || die "cannot find sing-box release for $arch"
   log "download sing-box: $url"
-  curl -fL "$url" -o "$tmp/sing-box.tgz"
+  curl -fL --connect-timeout 10 --max-time 300 --retry 2 "$url" -o "$tmp/sing-box.tgz"
   tar -xzf "$tmp/sing-box.tgz" -C "$tmp"
   found="$(find "$tmp" -type f -name sing-box | head -n 1)"
   [ -n "$found" ] || die "sing-box binary not found"
@@ -1236,7 +1242,7 @@ install_cloudflared() {
   url="$(download_url cloudflare/cloudflared "linux-$arch$")"
   [ -n "$url" ] || die "cannot find cloudflared release for $arch"
   log "download cloudflared: $url"
-  curl -fL "$url" -o "$tmp/cloudflared"
+  curl -fL --connect-timeout 10 --max-time 300 --retry 2 "$url" -o "$tmp/cloudflared"
   install -m 0755 "$tmp/cloudflared" "$CLOUDFLARED_BIN"
   : >"$CF_MARKER"
   rm -rf "$tmp"
@@ -1991,6 +1997,7 @@ apply_changes() {
   need_root
   progress_step 1 4 "正在更新 Litebox 配置..."
   load_or_create_env
+  install_sing_box
   apply_network_tuning
   install_cloudflared
   gen_cert
@@ -2533,6 +2540,7 @@ update_apply() {
   need_root
   is_installed || exit 0
   load_or_create_env
+  install_sing_box
   apply_network_tuning
   gen_cert
   save_env
@@ -2940,8 +2948,8 @@ show_menu() {
       log "Argo 状态: $(argo_mode_text)"
       argo_host="$(current_argo_host)"
       [ -n "$argo_host" ] && log "Argo HOST: $argo_host"
-      log "本机 IPv4: ${current_ipv4:-未检测到}"
-      log "本机 IPv6: ${current_ipv6:-未检测到}"
+      log "本机 IPv4: ${current_ipv4:-无}"
+      log "本机 IPv6: ${current_ipv6:-无}"
       log "出口模式: $(outbound_mode_text)"
       log "WARP 分流: $(warp_split_status_text)"
       log "端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
@@ -2955,8 +2963,8 @@ show_menu() {
       fi
       log "安装状态: 未安装"
       log "安装后快捷命令: sudo LB / sudo lb"
-      log "本机 IPv4: ${current_ipv4:-未检测到}"
-      log "本机 IPv6: ${current_ipv6:-未检测到}"
+      log "本机 IPv4: ${current_ipv4:-无}"
+      log "本机 IPv6: ${current_ipv6:-无}"
       log "出口模式: $(outbound_mode_text)"
       log "默认端口: vless=$VLESS_PORT anytls=$ANYTLS_PORT tuic=$TUIC_PORT hy2=$HY2_PORT ws=$VMESS_LOCAL_PORT"
       log "端口跳跃: tuic=$(hop_status_text "$TUIC_HOP_PORTS")   hy2=$(hop_status_text "$HY2_HOP_PORTS")"
