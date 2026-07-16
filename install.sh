@@ -1237,6 +1237,25 @@ install_cloudflared() {
     rm -f "$CF_MARKER"
     return 0
   fi
+  if has apt-get; then
+    log "installing cloudflared from the Cloudflare APT repository"
+    export DEBIAN_FRONTEND=noninteractive
+    keyring="/usr/share/keyrings/cloudflare-main.gpg"
+    source_list="/etc/apt/sources.list.d/cloudflared.list"
+    mkdir -p "$(dirname "$keyring")"
+    if curl -fsSL --connect-timeout 10 --max-time 60 --retry 2 \
+      "https://pkg.cloudflare.com/cloudflare-main.gpg" -o "$keyring" &&
+      printf '%s\n' "deb [signed-by=$keyring] https://pkg.cloudflare.com/cloudflared any main" >"$source_list" &&
+      apt-get update && apt-get install -y cloudflared; then
+      found="$(command -v cloudflared || true)"
+      if [ -n "$found" ] && [ -x "$found" ]; then
+        ln -sf "$found" "$CLOUDFLARED_BIN"
+        rm -f "$CF_MARKER"
+        return 0
+      fi
+    fi
+    log "Cloudflare APT installation failed, falling back to the release download"
+  fi
   arch="$(arch_name)"
   tmp="$(mktemp -d)"
   url="$(download_url cloudflare/cloudflared "linux-$arch$")"
