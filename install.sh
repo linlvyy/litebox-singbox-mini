@@ -388,10 +388,10 @@ public_ip() {
   }
   for url in https://api.ipify.org https://ifconfig.me; do
     ip="$(curl -fsSL --connect-timeout 3 "$url" 2>/dev/null || true)"
-    [ -n "$ip" ] && {
+    if printf '%s\n' "$ip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' && ! private_or_nat_ipv4 "$ip"; then
       printf '%s\n' "$ip"
       return
-    }
+    fi
   done
   ip="$(local_ipv4 2>/dev/null || true)"
   if [ -n "$ip" ] && ! private_or_nat_ipv4 "$ip"; then
@@ -1200,6 +1200,32 @@ install_sing_box() {
     fi
     log "existing sing-box cannot run, reinstalling"
     rm -f "$BIN"
+  fi
+  if has apt-get; then
+    log "installing sing-box from the SagerNet APT repository"
+    export DEBIAN_FRONTEND=noninteractive
+    keyring="/etc/apt/keyrings/sagernet.asc"
+    source_list="/etc/apt/sources.list.d/sagernet.sources"
+    mkdir -p "$(dirname "$keyring")"
+    if curl -fsSL --connect-timeout 10 --max-time 60 --retry 2 \
+      "https://sing-box.app/gpg.key" -o "$keyring" &&
+      chmod a+r "$keyring" &&
+      printf '%s\n' \
+        "Types: deb" \
+        "URIs: https://deb.sagernet.org/" \
+        "Suites: *" \
+        "Components: *" \
+        "Enabled: yes" \
+        "Signed-By: $keyring" >"$source_list" &&
+      apt-get update && apt-get install -y sing-box; then
+      found="$(command -v sing-box || true)"
+      if [ -n "$found" ] && sing_box_usable "$found"; then
+        ln -sf "$found" "$BIN"
+        rm -f "$SING_BOX_MARKER"
+        return 0
+      fi
+    fi
+    log "SagerNet APT installation failed, falling back to the release download"
   fi
   tmp="$(mktemp -d)"
   if [ -n "$SING_BOX_URL" ]; then
@@ -3041,7 +3067,9 @@ install_all() {
   write_config
   write_services
   progress_step 5 8 "正在创建快捷命令..."
-  write_cli
+  # Keep the script that completed this install. Fetching main here can fail on
+  # IPv6-only hosts or replace it with a stale CDN response.
+  write_cli "${BASH_SOURCE[0]:-$0}"
   write_links
   if [ "${FIREWALL_ACTION:-1}" = "1" ]; then
     progress_step 6 8 "正在开放服务端口..."
